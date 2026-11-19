@@ -61,6 +61,7 @@ static void push_tex(E*e,float x,float y,float w,float h,uint32_t cell){
  e->v[e->nv++]=a;e->v[e->nv++]=d;e->v[e->nv++]=f;
 }
 
+static uint32_t memtype(E*e,uint32_t mask,VkMemoryPropertyFlags flags);
 static void push_sprite(E*e,float x,float y,float w,float h,const AnimationFrame*f){
  if(!f||!e->sprite_width||!e->sprite_height)return;
  float l=x*2/e->w-1,rr=(x+w)*2/e->w-1,t=y*2/e->h-1,bb=(y+h)*2/e->h-1;
