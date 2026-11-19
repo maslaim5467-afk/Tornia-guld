@@ -35,6 +35,12 @@
 - The world is not necessarily safe or balanced around the player's current strength. Powerful creatures, dangerous regions, and large-scale conflicts may exist even when the protagonist is not strong enough to overcome them.
 - A fair world does not mean every encounter must be winnable. Outcomes should arise from coherent rules and relevant circumstances rather than arbitrary punishment. The exact warning cues, encounter logic, combat rules, and role of chance remain **TBD**.
 
+## Camera and Viewpoint
+
+- **Perspective:** 2D Top-Down (view from above).
+- **Camera behavior:** Hybrid. During ordinary exploration, the camera follows the player character. In selected stages or situations, it may use a different behavior to support the intended presentation and gameplay.
+- The exact rules for when and how the camera changes behavior, including any fixed shots, framing, transitions, rotation, and zoom, remain **TBD** and must be defined in the relevant stage designs.
+
 ## 1. Game at a Glance
 
 | Field | Current information |
@@ -49,7 +55,7 @@
 | Primary development language | C |
 | Graphics API | Vulkan |
 | Engine | Custom engine |
-| Camera / viewpoint | TBD |
+| Camera / viewpoint | 2D Top-Down (view from above) |
 | Player mode | TBD |
 | Business model | TBD |
 | Target audience / age rating | TBD |
@@ -393,7 +399,8 @@ This section is the active checklist for completing the GDD. Answers should be a
 - [ ] Is the game single-player?
 
 ### B. Camera, movement, and interaction
-- [ ] What camera perspective will the game use?
+- [x] What camera perspective will the game use? 2D Top-Down.
+- [x] How should the camera behave? Hybrid: follow the player during ordinary exploration, with different behavior allowed in selected stages or situations.
 - [ ] Is movement free in 2D, platform-based, grid-based, or something else?
 - [ ] How does the player interact with objects and characters?
 - [ ] Which controls are always visible, and which are contextual?
@@ -456,3 +463,4 @@ This section is the active checklist for completing the GDD. Answers should be a
 | D-014 | World time is planned at 30 real-time minutes per in-game day; travel uses a hybrid experiential/fast approach | Confirmed direction | Travel physics, fast-travel rules, active-play clock behavior, and encounter scheduling remain open |
 | D-015 | World simulation pauses completely when the game is closed | Confirmed | No offline travel progress or world events; resume from saved world state |
 | D-016 | The world follows consistent, fair internal laws and is not artificially balanced to the player's strength | Confirmed design philosophy | Exact creature ecology, danger cues, encounter logic, combat rules, and chance remain open |
+| D-017 | Use a 2D Top-Down camera perspective with hybrid camera behavior | Confirmed | Camera follows the player during ordinary exploration; selected stages or situations may use different camera behavior. Exact triggers and camera techniques remain TBD. |
