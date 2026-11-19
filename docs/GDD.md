@@ -262,7 +262,7 @@ The current Level 01 HUD proposal includes:
 
 Their exact meanings, ranges, regeneration/depletion rules, UI representation, and gameplay effects are **TBD**.
 
-All characters have the general attributes under consideration (including attributes such as Strength, Speed, Intelligence, and Stamina). The exact complete attribute list, definitions, ranges, individual values, and mechanical effects remain **TBD**.
+All characters have the following six general attributes: **Strength, Agility, Intelligence, Stamina, Mana, and Health**. These are the confirmed current attribute categories. Their exact definitions, ranges, individual values, progression rules, and mechanical effects remain **TBD**.
 
 Additional character needs, conditions, inventory capacity, equipment slots, skills, and status effects: **TBD**.
 
@@ -527,4 +527,4 @@ This section is the active checklist for completing the GDD. Answers should be a
 | D-034 | Characters may have varying combinations and numbers of innate aptitudes | Confirmed design direction | The number and combination of aptitudes are not fixed or uniform across all characters; an individual may have multiple aptitudes, while another may have a different or more limited combination. Exact distribution and limits remain TBD. |
 | D-035 | Inheritance of innate aptitudes is variable, not guaranteed | Confirmed design direction | A child may or may not inherit an aptitude from their parents. Inheritance is not a fixed or guaranteed rule; exact inheritance probabilities and rules remain TBD. |
 | D-036 | Awareness and discovery of innate aptitudes use a mixed approach | Confirmed design direction | Some aptitudes may be known from the beginning, while others may become apparent later. Some may have clues or indications; others may remain undiscovered without any explicit hint. Exact discovery methods remain TBD. |
-| D-037 | General character attributes are present for all characters | Confirmed design direction | Attributes such as Strength, Speed, Intelligence, and Stamina exist for every character. The full attribute list, definitions, values, and effects remain TBD. |
+| D-037 | All characters share six general attribute categories | Confirmed design direction | The six categories are Strength, Agility, Intelligence, Stamina, Mana, and Health. Exact definitions, ranges, values, progression rules, and mechanical effects remain TBD. |
