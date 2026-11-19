@@ -155,6 +155,7 @@ The following order reflects the current story documentation:
 - **Karma is a deep, distinct system:** routine everyday actions do not increase it. Meaningful choices are what influence karma.
 - Karma must not automatically be treated as the same thing as public reputation or other characters' opinions of the protagonist.
 - The exact rules for evaluating choices, including the roles of intention, outcome, and the nature of the choice, remain **TBD** and require creator approval.
+- **Communicating consequences:** use a combination of immediate clear feedback, gradual consequences revealed through later character behavior and events, and hidden consequences that may only become understandable later. The presentation method depends on the choice and its consequences.
 
 ### 4.5 Progression
 Progression is intended to be holistic, with two broad dimensions:
@@ -383,6 +384,7 @@ This section is the active checklist for completing the GDD. Answers should be a
 - [ ] Is the world divided into levels, regions, chapters, or an interconnected map?
 - [ ] Are there branching paths or player choices?
 - [ ] How far-reaching and persistent can the consequences of choices be?
+- [x] How should the player learn about consequences? Use a context-sensitive combination of immediate feedback, gradual revelation, and hidden consequences.
 
 ### E. Character and systems
 - [ ] Which character attributes and needs exist?
@@ -420,3 +422,4 @@ This section is the active checklist for completing the GDD. Answers should be a
 | D-008 | The protagonist has some fixed identity traits and some personality traits that can change through player choices and actions | Confirmed | Exact fixed and mutable traits remain open |
 | D-009 | Player choices affect relationships and future opportunities | Confirmed | Scope and persistence of consequences remain open |
 | D-010 | Karma is a deep system influenced by meaningful choices, not routine everyday actions | Confirmed | Evaluation rules (intention, outcome, nature of choice) remain open |
+| D-011 | Consequences are communicated through a context-sensitive combination of immediate, gradual, and hidden feedback | Confirmed | Which method applies depends on the choice and its consequences |
