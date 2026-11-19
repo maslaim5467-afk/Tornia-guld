@@ -144,7 +144,7 @@ static int load_animation_config(E*e,const char*path){
  AAsset*a=AAssetManager_open(e->app->activity->assetManager,path,AASSET_MODE_BUFFER);if(!a)return -1;
  off_t n=AAsset_getLength(a);if(n<=0||n>65536){AAsset_close(a);return -1;}
  char*text=malloc((size_t)n+1u);if(!text){AAsset_close(a);return -1;}
- int got=AAsset_read(a,text,(size_t)n);AAsset_close(a);if(got!=(int)n){free(text);return -1;}text[n]='\\0';
+ int got=AAsset_read(a,text,(size_t)n);AAsset_close(a);if(got!=(int)n){free(text);return -1;}text[n]='\0';
  int ok=animation_load_text(&e->animations,text,(uint16_t)e->sprite_width,(uint16_t)e->sprite_height);free(text);
  if(ok||animation_play(&e->animator,&e->animations,"idle"))return -1;
  e->sprite_ready=1;LOG("Animation system ready: %u clips / %u frames",e->animations.clip_count,e->animations.frame_count);return 0;
