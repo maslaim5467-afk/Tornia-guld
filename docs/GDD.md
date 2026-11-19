@@ -170,7 +170,25 @@ The following order reflects the current story documentation:
 | Stealth | TBD |
 | Exploration | TBD |
 | Dialogue / interaction | TBD |
-| Magic / special abilities | A broad, learnable field; a character may learn multiple forms of magic (for example, stone magic and water magic). Innate aptitude influences the degree or rate of mastery; exact rules remain TBD |
+| Magic / special abilities | A broad, learnable field; a character may learn multiple forms of magic (for example, stone magic and water magic). All magic consumes Mana. Environmental presence of a corresponding element can broaden that element's magical power and unlock certain conditions or possibilities. Some spells may additionally require Stamina and/or Intelligence. Innate aptitude influences learning speed, mastery ceiling, and magical power/efficiency. Magic combinations, including combinations of more than two forms, are allowed only within combination rules and outcomes defined by the developers. Exact rules remain TBD |
+
+
+### 4.2.1 Magic system — confirmed design direction
+
+- Magic is a broad field of knowledge and practice, not a set of mutually exclusive character classes. A character may learn multiple forms, such as stone magic and water magic.
+- Magical aptitude is relevant to learning speed, attainable mastery, and the power or efficiency of magical execution. Low aptitude does not automatically prevent learning or progress.
+- **Mana is consumed whenever magic is used.** Some individual spells or techniques may also require other attributes/resources, including Stamina and/or Intelligence. Exact costs and thresholds remain **TBD**.
+- The presence of a relevant element in the environment can expand the effective scope or power of that element's magic and may enable certain additional conditions or applications. Exact environmental rules remain **TBD**.
+- **Magic combinations are permitted**, including combinations of more than two forms. However, combinations and their possible outcomes must remain within the combination rules and outcomes explicitly designed/defined by the developers. Player experimentation takes place within this authored system; it does not create arbitrary effects outside the world's rules.
+- The exact catalogue of magical forms, spells, combination rules, environmental interactions, costs, and progression mechanics remains **TBD**.
+
+### 4.2.2 Rise system — initial distinction only
+
+- The creator has identified a separate progression/power system referred to as **Rise** (English spelling/name is provisional and remains **TBD**).
+- Rise is distinct from magic and is strongly associated with physical capabilities and combat-related development, including stamina, strength, speed, and physical skills.
+- A character may develop both magic and Rise; the systems are not mutually exclusive.
+- Rise is relevant as a path for characters such as warriors and crusaders, and for characters whose Mana is weak.
+- The detailed nature, activation, progression, mechanics, costs, limits, and relationship between Rise and character attributes remain **TBD** pending further explanation from the creator.
 
 ### 4.3 Controls
 - Initial prototype input: touchscreen.
@@ -429,7 +447,11 @@ This section is the active checklist for completing the GDD. Answers should be a
 - [x] Which broad resource types are intended? Separate Stamina, Energy, and Mana (MP) resources; their exact rules and uses remain TBD.
 - [x] What enables a character to use magic? A special magical aptitude that may be innate or may awaken later in life; causes, conditions, prevalence, and development remain TBD.
 - [x] What broad paths can develop magical ability? A combination of learning from teachers, personal practice/experience, and discovering ancient books, artifacts, or knowledge; exact mechanics remain TBD.
-- [x] Is magic restricted to one innate element/type, or can characters learn multiple forms? Magic is a broad, learnable field; a character may learn multiple forms (for example, stone magic and water magic). Innate aptitude influences mastery; exact rules remain TBD.
+- [x] Is magic restricted to one innate element/type, or can characters learn multiple forms? Magic is a broad, learnable field; a character may learn multiple forms. Innate aptitude influences learning speed, mastery ceiling, and magical power/efficiency.
+- [x] What resources does magic consume? All magic consumes Mana; some spells may additionally require Stamina and/or Intelligence. Exact costs and thresholds remain TBD.
+- [x] How does the environment affect elemental magic? The presence of a relevant element can broaden that element's magical power and unlock certain conditions or applications; exact rules remain TBD.
+- [x] Can players combine multiple forms of magic? Yes, including more than two forms, but only within combination rules and outcomes defined by the developers; exact catalogue and mechanics remain TBD.
+- [x] Is there a progression system separate from magic for physical/combat development? Yes, the creator refers to it as Rise (provisional name). It is associated with stamina, strength, speed, and physical skills; characters may develop both Rise and magic. Detailed system remains TBD..
 - [ ] Which character attributes and needs exist?
 - [ ] What do Health, Awareness, and Energy each represent?
 - [ ] Are there skills, experience, levels, or other progression systems?
