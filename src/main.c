@@ -6,9 +6,11 @@
 #include <android/native_window.h>
 #include <vulkan/vulkan.h>
 #include "world.h"
+#include "animation.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <time.h>
 #define LOG(...) __android_log_print(ANDROID_LOG_INFO,"TORNIA_GULD",__VA_ARGS__)
 #define ERR(...) __android_log_print(ANDROID_LOG_ERROR,"TORNIA_GULD",__VA_ARGS__)
 #define MAXV 40000
@@ -19,6 +21,8 @@ typedef struct {
  VkRenderPass rp; VkPipelineLayout layout; VkPipeline pipe; VkCommandPool pool; VkCommandBuffer *cmd;
  VkBuffer vb; VkDeviceMemory vm; VkSemaphore semA,semB; VkFence fence;
  VkImage atlas; VkDeviceMemory atlas_mem; VkImageView atlas_view; VkSampler atlas_sampler;
+ VkImage sprite_image; VkDeviceMemory sprite_memory; VkImageView sprite_view; VkSampler sprite_sampler;
+ uint32_t sprite_width,sprite_height; AnimationSet animations; AnimationPlayer animator; int sprite_ready; uint64_t last_frame_ns;
  VkDescriptorSetLayout descriptor_layout; VkDescriptorPool descriptor_pool; VkDescriptorSet descriptor_set;
  V v[MAXV]; uint32_t nv; int ready,notice,scene,dragging,world_logged;
  World world; WorldCamera camera; float last_x,last_y;
@@ -56,6 +60,96 @@ static void push_tex(E*e,float x,float y,float w,float h,uint32_t cell){
  e->v[e->nv++]=a;e->v[e->nv++]=b;e->v[e->nv++]=d;
  e->v[e->nv++]=a;e->v[e->nv++]=d;e->v[e->nv++]=f;
 }
+
+static void push_sprite(E*e,float x,float y,float w,float h,const AnimationFrame*f){
+ if(!f||!e->sprite_width||!e->sprite_height)return;
+ float l=x*2/e->w-1,rr=(x+w)*2/e->w-1,t=y*2/e->h-1,bb=(y+h)*2/e->h-1;
+ float u0=(float)f->x/e->sprite_width,v0=(float)f->y/e->sprite_height;
+ float u1=(float)(f->x+f->width)/e->sprite_width,v1=(float)(f->y+f->height)/e->sprite_height;
+ V a={l,t,u0,v0,1,1,1,1,2},b={rr,t,u1,v0,1,1,1,1,2},d={rr,bb,u1,v1,1,1,1,1,2},c={l,bb,u0,v1,1,1,1,1,2};
+ if(e->nv+6>MAXV)return;
+ e->v[e->nv++]=a;e->v[e->nv++]=b;e->v[e->nv++]=d;e->v[e->nv++]=a;e->v[e->nv++]=d;e->v[e->nv++]=c;
+}
+static int create_sprite_texture(E*e,const char*path){
+ AAsset*a=AAssetManager_open(e->app->activity->assetManager,path,AASSET_MODE_BUFFER);if(!a)return -1;
+ off_t length=AAsset_getLength(a);if(length<=0||length>8*1024*1024){AAsset_close(a);return -1;}
+ jbyte*bytes=malloc((size_t)length);if(!bytes){AAsset_close(a);return -1;}
+ int got=AAsset_read(a,bytes,(size_t)length);AAsset_close(a);if(got!=(int)length){free(bytes);return -1;}
+ JavaVM*vm=e->app->activity->vm;JNIEnv*env=NULL;int attached=0,result=-1;
+ jclass factory=NULL,bc=NULL;jmethodID decode=NULL,gw=NULL,gh=NULL,gp=NULL;
+ jbyteArray encoded=NULL;jobject bitmap=NULL;jintArray pixels=NULL;jint*p=NULL;uint8_t*rgba=NULL;
+ if(!vm)goto done;
+ jint state=(*vm)->GetEnv(vm,(void**)&env,JNI_VERSION_1_6);
+ if(state==JNI_EDETACHED){if((*vm)->AttachCurrentThread(vm,&env,NULL)!=JNI_OK||!env)goto done;attached=1;}else if(state!=JNI_OK||!env)goto done;
+ factory=(*env)->FindClass(env,"android/graphics/BitmapFactory");if(!factory||(*env)->ExceptionCheck(env))goto done;
+ decode=(*env)->GetStaticMethodID(env,factory,"decodeByteArray","([BII)Landroid/graphics/Bitmap;");if(!decode||(*env)->ExceptionCheck(env))goto done;
+ encoded=(*env)->NewByteArray(env,(jsize)length);if(!encoded||(*env)->ExceptionCheck(env))goto done;
+ (*env)->SetByteArrayRegion(env,encoded,0,(jsize)length,bytes);free(bytes);bytes=NULL;if((*env)->ExceptionCheck(env))goto done;
+ bitmap=(*env)->CallStaticObjectMethod(env,factory,decode,encoded,0,(jint)length);if((*env)->ExceptionCheck(env)||!bitmap)goto done;
+ bc=(*env)->FindClass(env,"android/graphics/Bitmap");if(!bc||(*env)->ExceptionCheck(env))goto done;
+ gw=(*env)->GetMethodID(env,bc,"getWidth","()I");gh=(*env)->GetMethodID(env,bc,"getHeight","()I");gp=(*env)->GetMethodID(env,bc,"getPixels","([IIIIIII)V");
+ if(!gw||!gh||!gp||(*env)->ExceptionCheck(env))goto done;
+ jint width=(*env)->CallIntMethod(env,bitmap,gw),height=(*env)->CallIntMethod(env,bitmap,gh);
+ if((*env)->ExceptionCheck(env)||width<=0||height<=0||width>4096||height>4096)goto done;
+ size_t count=(size_t)width*(size_t)height;if(count>16000000u)goto done;
+ pixels=(*env)->NewIntArray(env,(jsize)count);if(!pixels||(*env)->ExceptionCheck(env))goto done;
+ (*env)->CallVoidMethod(env,bitmap,gp,pixels,0,width,0,0,width,height);if((*env)->ExceptionCheck(env))goto done;
+ p=(*env)->GetIntArrayElements(env,pixels,0);if(!p||(*env)->ExceptionCheck(env))goto done;
+ rgba=malloc(count*4u);if(!rgba)goto done;
+ for(size_t i=0;i<count;i++){uint32_t v=(uint32_t)p[i];rgba[i*4u]=(uint8_t)(v>>16);rgba[i*4u+1u]=(uint8_t)(v>>8);rgba[i*4u+2u]=(uint8_t)v;rgba[i*4u+3u]=(uint8_t)(v>>24);}
+ (*env)->ReleaseIntArrayElements(env,pixels,p,JNI_ABORT);p=NULL;
+ (*env)->DeleteLocalRef(env,pixels);pixels=NULL;(*env)->DeleteLocalRef(env,bitmap);bitmap=NULL;(*env)->DeleteLocalRef(env,bc);bc=NULL;(*env)->DeleteLocalRef(env,factory);factory=NULL;(*env)->DeleteLocalRef(env,encoded);encoded=NULL;
+ if(attached){(*vm)->DetachCurrentThread(vm);attached=0;}
+ e->sprite_width=(uint32_t)width;e->sprite_height=(uint32_t)height;
+ VkDeviceSize data_size=(VkDeviceSize)count*4u;VkBuffer staging=0;VkDeviceMemory staging_mem=0;
+ VkBufferCreateInfo bci={.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,.size=data_size,.usage=VK_BUFFER_USAGE_TRANSFER_SRC_BIT,.sharingMode=VK_SHARING_MODE_EXCLUSIVE};
+ if(vkCreateBuffer(e->dev,&bci,0,&staging)!=VK_SUCCESS)goto upload_done;
+ VkMemoryRequirements req;vkGetBufferMemoryRequirements(e->dev,staging,&req);
+ uint32_t mt=memtype(e,req.memoryTypeBits,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);if(mt==UINT32_MAX)goto upload_done;
+ VkMemoryAllocateInfo mai={.sType=VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,.allocationSize=req.size,.memoryTypeIndex=mt};
+ if(vkAllocateMemory(e->dev,&mai,0,&staging_mem)!=VK_SUCCESS)goto upload_done;
+ if(vkBindBufferMemory(e->dev,staging,staging_mem,0)!=VK_SUCCESS)goto upload_done;
+ void*m=NULL;if(vkMapMemory(e->dev,staging_mem,0,data_size,0,&m)!=VK_SUCCESS)goto upload_done;memcpy(m,rgba,(size_t)data_size);vkUnmapMemory(e->dev,staging_mem);
+ VkImageCreateInfo ici={.sType=VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,.imageType=VK_IMAGE_TYPE_2D,.format=VK_FORMAT_R8G8B8A8_UNORM,.extent={(uint32_t)width,(uint32_t)height,1},.mipLevels=1,.arrayLayers=1,.samples=VK_SAMPLE_COUNT_1_BIT,.tiling=VK_IMAGE_TILING_OPTIMAL,.usage=VK_IMAGE_USAGE_TRANSFER_DST_BIT|VK_IMAGE_USAGE_SAMPLED_BIT,.sharingMode=VK_SHARING_MODE_EXCLUSIVE,.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED};
+ if(vkCreateImage(e->dev,&ici,0,&e->sprite_image)!=VK_SUCCESS)goto upload_done;
+ vkGetImageMemoryRequirements(e->dev,e->sprite_image,&req);mt=memtype(e,req.memoryTypeBits,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);if(mt==UINT32_MAX)goto upload_done;
+ mai.allocationSize=req.size;mai.memoryTypeIndex=mt;if(vkAllocateMemory(e->dev,&mai,0,&e->sprite_memory)!=VK_SUCCESS)goto upload_done;
+ if(vkBindImageMemory(e->dev,e->sprite_image,e->sprite_memory,0)!=VK_SUCCESS)goto upload_done;
+ VkCommandBufferAllocateInfo cai={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,.commandPool=e->pool,.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY,.commandBufferCount=1};VkCommandBuffer cmd=0;
+ if(vkAllocateCommandBuffers(e->dev,&cai,&cmd)!=VK_SUCCESS)goto upload_done;
+ VkCommandBufferBeginInfo begin={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
+ if(vkBeginCommandBuffer(cmd,&begin)!=VK_SUCCESS){vkFreeCommandBuffers(e->dev,e->pool,1,&cmd);goto upload_done;}
+ VkImageMemoryBarrier b1={.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,.dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT,.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED,.newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.image=e->sprite_image,.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1}};
+ vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,0,0,0,1,&b1);
+ VkBufferImageCopy cp={.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1},.imageExtent={(uint32_t)width,(uint32_t)height,1}};vkCmdCopyBufferToImage(cmd,staging,e->sprite_image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&cp);
+ VkImageMemoryBarrier b2={.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT,.dstAccessMask=VK_ACCESS_SHADER_READ_BIT,.oldLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,.newLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.image=e->sprite_image,.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1}};
+ vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,0,0,0,0,0,1,&b2);
+ if(vkEndCommandBuffer(cmd)!=VK_SUCCESS){vkFreeCommandBuffers(e->dev,e->pool,1,&cmd);goto upload_done;}
+ VkSubmitInfo si={.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,.commandBufferCount=1,.pCommandBuffers=&cmd};VkResult vr=vkQueueSubmit(e->q,1,&si,0);if(vr==VK_SUCCESS)vr=vkQueueWaitIdle(e->q);vkFreeCommandBuffers(e->dev,e->pool,1,&cmd);if(vr!=VK_SUCCESS)goto upload_done;
+ VkImageViewCreateInfo vi={.sType=VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,.image=e->sprite_image,.viewType=VK_IMAGE_VIEW_TYPE_2D,.format=VK_FORMAT_R8G8B8A8_UNORM,.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1}};
+ if(vkCreateImageView(e->dev,&vi,0,&e->sprite_view)!=VK_SUCCESS)goto upload_done;
+ VkSamplerCreateInfo sci={.sType=VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,.magFilter=VK_FILTER_NEAREST,.minFilter=VK_FILTER_NEAREST,.mipmapMode=VK_SAMPLER_MIPMAP_MODE_NEAREST,.addressModeU=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,.addressModeV=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,.addressModeW=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,.maxAnisotropy=1.0f,.minLod=0,.maxLod=0};
+ if(vkCreateSampler(e->dev,&sci,0,&e->sprite_sampler)!=VK_SUCCESS)goto upload_done;
+ VkDescriptorImageInfo image={.sampler=e->sprite_sampler,.imageView=e->sprite_view,.imageLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+ VkWriteDescriptorSet wr={.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,.dstSet=e->descriptor_set,.dstBinding=1,.descriptorCount=1,.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,.pImageInfo=&image};vkUpdateDescriptorSets(e->dev,1,&wr,0,0);
+ result=0;LOG("Sprite sheet uploaded: %ux%u",e->sprite_width,e->sprite_height);
+ upload_done:
+ if(staging)vkDestroyBuffer(e->dev,staging,0);if(staging_mem)vkFreeMemory(e->dev,staging_mem,0);free(rgba);return result;
+ done:
+ if(p&&pixels)(*env)->ReleaseIntArrayElements(env,pixels,p,JNI_ABORT);
+ if(env){if(pixels)(*env)->DeleteLocalRef(env,pixels);if(bitmap)(*env)->DeleteLocalRef(env,bitmap);if(bc)(*env)->DeleteLocalRef(env,bc);if(factory)(*env)->DeleteLocalRef(env,factory);if(encoded)(*env)->DeleteLocalRef(env,encoded);if((*env)->ExceptionCheck(env))(*env)->ExceptionClear(env);}
+ if(bytes)free(bytes);if(rgba)free(rgba);if(attached)(*vm)->DetachCurrentThread(vm);return -1;
+}
+static int load_animation_config(E*e,const char*path){
+ AAsset*a=AAssetManager_open(e->app->activity->assetManager,path,AASSET_MODE_BUFFER);if(!a)return -1;
+ off_t n=AAsset_getLength(a);if(n<=0||n>65536){AAsset_close(a);return -1;}
+ char*text=malloc((size_t)n+1u);if(!text){AAsset_close(a);return -1;}
+ int got=AAsset_read(a,text,(size_t)n);AAsset_close(a);if(got!=(int)n){free(text);return -1;}text[n]='\\0';
+ int ok=animation_load_text(&e->animations,text,(uint16_t)e->sprite_width,(uint16_t)e->sprite_height);free(text);
+ if(ok||animation_play(&e->animator,&e->animations,"idle"))return -1;
+ e->sprite_ready=1;LOG("Animation system ready: %u clips / %u frames",e->animations.clip_count,e->animations.frame_count);return 0;
+}
+
 static void draw_world(E*e){
  e->nv=0;
  push(e,0,0,e->w,e->h,.055f,.13f,.065f);
@@ -77,6 +171,7 @@ static void draw_world(E*e){
    push_tex(e,ox,oy,size,size,id);
   }
  }
+ if(e->sprite_ready){const AnimationFrame*f=animation_current_frame(&e->animator,&e->animations);if(f){float h=e->h*.30f,w=h*(float)f->width/(float)f->height;push_sprite(e,e->w*.5f-w*.5f,e->h*.52f-h*.5f,w,h,f);}}
  push(e,0,0,e->w,42,.025f,.065f,.035f);
  label(e,"WORLD",20,14,2,.91f,.88f,.68f);
  label(e,"DRAG TO MOVE",20,e->h-30,1.5f,.78f,.87f,.70f);
@@ -243,7 +338,7 @@ static int create_texture_atlas(E*e){
  if(vkCreateImageView(e->dev,&vi,0,&e->atlas_view))return -1;
  VkSamplerCreateInfo sci={.sType=VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,.magFilter=VK_FILTER_NEAREST,.minFilter=VK_FILTER_NEAREST,.mipmapMode=VK_SAMPLER_MIPMAP_MODE_NEAREST,.addressModeU=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,.addressModeV=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,.addressModeW=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,.maxAnisotropy=1.0f,.minLod=0,.maxLod=0,.borderColor=VK_BORDER_COLOR_INT_OPAQUE_BLACK};
  if(vkCreateSampler(e->dev,&sci,0,&e->atlas_sampler))return -1;
- VkDescriptorPoolSize ps={VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,1};
+ VkDescriptorPoolSize ps={VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,2};
  VkDescriptorPoolCreateInfo dp={.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,.maxSets=1,.poolSizeCount=1,.pPoolSizes=&ps};
  if(vkCreateDescriptorPool(e->dev,&dp,0,&e->descriptor_pool))return -1;
  VkDescriptorSetAllocateInfo da={.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,.descriptorPool=e->descriptor_pool,.descriptorSetCount=1,.pSetLayouts=&e->descriptor_layout};
@@ -269,7 +364,7 @@ static int setup(E*e){
  vkGetSwapchainImagesKHR(e->dev,e->sw,&e->n,0);e->imgs=malloc(e->n*sizeof(VkImage));vkGetSwapchainImagesKHR(e->dev,e->sw,&e->n,e->imgs);e->views=calloc(e->n,sizeof(VkImageView));e->fb=calloc(e->n,sizeof(VkFramebuffer));e->cmd=calloc(e->n,sizeof(VkCommandBuffer));
  for(uint32_t i=0;i<e->n;i++){VkImageViewCreateInfo vi={.sType=VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,.image=e->imgs[i],.viewType=VK_IMAGE_VIEW_TYPE_2D,.format=e->fmt,.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1}};if(vkCreateImageView(e->dev,&vi,0,&e->views[i]))return -1;}
  VkAttachmentDescription ad={.format=e->fmt,.samples=VK_SAMPLE_COUNT_1_BIT,.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR,.storeOp=VK_ATTACHMENT_STORE_OP_STORE,.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED,.finalLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR};VkAttachmentReference ar={0,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};VkSubpassDescription sub={.pipelineBindPoint=VK_PIPELINE_BIND_POINT_GRAPHICS,.colorAttachmentCount=1,.pColorAttachments=&ar};VkRenderPassCreateInfo ri={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,.attachmentCount=1,.pAttachments=&ad,.subpassCount=1,.pSubpasses=&sub};if(vkCreateRenderPass(e->dev,&ri,0,&e->rp))return -1;
- VkDescriptorSetLayoutBinding db={.binding=0,.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,.descriptorCount=1,.stageFlags=VK_SHADER_STAGE_FRAGMENT_BIT};VkDescriptorSetLayoutCreateInfo dl={.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,.bindingCount=1,.pBindings=&db};if(vkCreateDescriptorSetLayout(e->dev,&dl,0,&e->descriptor_layout))return -1;
+ VkDescriptorSetLayoutBinding db[2]={{.binding=0,.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,.descriptorCount=1,.stageFlags=VK_SHADER_STAGE_FRAGMENT_BIT},{.binding=1,.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,.descriptorCount=1,.stageFlags=VK_SHADER_STAGE_FRAGMENT_BIT}};VkDescriptorSetLayoutCreateInfo dl={.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,.bindingCount=2,.pBindings=db};if(vkCreateDescriptorSetLayout(e->dev,&dl,0,&e->descriptor_layout))return -1;
  VkShaderModule vs=shader(e,"shaders/menu.vert.spv"),fsmod=shader(e,"shaders/menu.frag.spv");if(!vs||!fsmod)return -1;
  VkPipelineShaderStageCreateInfo st[2]={{.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_VERTEX_BIT,.module=vs,.pName="main"},{.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_FRAGMENT_BIT,.module=fsmod,.pName="main"}};
  VkVertexInputBindingDescription bd={0,sizeof(V),VK_VERTEX_INPUT_RATE_VERTEX};VkVertexInputAttributeDescription at[4]={{0,0,VK_FORMAT_R32G32_SFLOAT,0},{1,0,VK_FORMAT_R32G32B32A32_SFLOAT,16},{2,0,VK_FORMAT_R32G32_SFLOAT,8},{3,0,VK_FORMAT_R32_SFLOAT,32}};VkPipelineVertexInputStateCreateInfo vx={.sType=VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,.vertexBindingDescriptionCount=1,.pVertexBindingDescriptions=&bd,.vertexAttributeDescriptionCount=4,.pVertexAttributeDescriptions=at};VkPipelineInputAssemblyStateCreateInfo ia={.sType=VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,.topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST};VkPipelineViewportStateCreateInfo vp={.sType=VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,.viewportCount=1,.scissorCount=1};VkPipelineRasterizationStateCreateInfo rs={.sType=VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,.polygonMode=VK_POLYGON_MODE_FILL,.cullMode=VK_CULL_MODE_NONE,.lineWidth=1};VkPipelineMultisampleStateCreateInfo ms={.sType=VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT};VkPipelineColorBlendAttachmentState ba={.blendEnable=VK_TRUE,.srcColorBlendFactor=VK_BLEND_FACTOR_SRC_ALPHA,.dstColorBlendFactor=VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,.colorBlendOp=VK_BLEND_OP_ADD,.srcAlphaBlendFactor=VK_BLEND_FACTOR_ONE,.dstAlphaBlendFactor=VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,.alphaBlendOp=VK_BLEND_OP_ADD,.colorWriteMask=15};VkPipelineColorBlendStateCreateInfo cb={.sType=VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,.attachmentCount=1,.pAttachments=&ba};VkDynamicState dyns[]={VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR};VkPipelineDynamicStateCreateInfo dy={.sType=VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,.dynamicStateCount=2,.pDynamicStates=dyns};VkPipelineLayoutCreateInfo li={.sType=VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,.setLayoutCount=1,.pSetLayouts=&e->descriptor_layout};if(vkCreatePipelineLayout(e->dev,&li,0,&e->layout))return -1;VkGraphicsPipelineCreateInfo pi={.sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,.stageCount=2,.pStages=st,.pVertexInputState=&vx,.pInputAssemblyState=&ia,.pViewportState=&vp,.pRasterizationState=&rs,.pMultisampleState=&ms,.pColorBlendState=&cb,.pDynamicState=&dy,.layout=e->layout,.renderPass=e->rp};VkResult pkr=vkCreateGraphicsPipelines(e->dev,0,1,&pi,0,&e->pipe);vkDestroyShaderModule(e->dev,vs,0);vkDestroyShaderModule(e->dev,fsmod,0);if(pkr)return -1;
@@ -277,10 +372,11 @@ static int setup(E*e){
  VkCommandPoolCreateInfo pci={.sType=VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,.flags=VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,.queueFamilyIndex=e->qf};if(vkCreateCommandPool(e->dev,&pci,0,&e->pool))return -1;VkCommandBufferAllocateInfo cai={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,.commandPool=e->pool,.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY,.commandBufferCount=e->n};if(vkAllocateCommandBuffers(e->dev,&cai,e->cmd))return -1;
  VkBufferCreateInfo bi={.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,.size=sizeof(V)*MAXV,.usage=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,.sharingMode=VK_SHARING_MODE_EXCLUSIVE};if(vkCreateBuffer(e->dev,&bi,0,&e->vb))return -1;VkMemoryRequirements mr;vkGetBufferMemoryRequirements(e->dev,e->vb,&mr);uint32_t mt=memtype(e,mr.memoryTypeBits,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);if(mt==UINT32_MAX)return -1;VkMemoryAllocateInfo mai={.sType=VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,.allocationSize=mr.size,.memoryTypeIndex=mt};if(vkAllocateMemory(e->dev,&mai,0,&e->vm))return -1;vkBindBufferMemory(e->dev,e->vb,e->vm,0);
  if(create_texture_atlas(e)){ERR("Terrain texture atlas creation failed");return -1;}
+  if(create_sprite_texture(e,"sprites/characters/player/file_00000000ce0c8210854d0157a262ddc5.png")==0)load_animation_config(e,"sprites/characters/player/player.anim");
  VkSemaphoreCreateInfo sem={.sType=VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};vkCreateSemaphore(e->dev,&sem,0,&e->semA);vkCreateSemaphore(e->dev,&sem,0,&e->semB);VkFenceCreateInfo fe={.sType=VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,.flags=VK_FENCE_CREATE_SIGNALED_BIT};vkCreateFence(e->dev,&fe,0,&e->fence);world_generate(&e->world,0x4f4c5245u);world_camera_reset(&e->camera);e->camera.x=((float)WORLD_WIDTH*WORLD_TILE_SIZE-(float)e->w)*.5f;e->camera.y=((float)WORLD_HEIGHT*WORLD_TILE_SIZE-(float)e->h)*.5f;world_camera_clamp(&e->camera,(float)e->w,(float)e->h);e->ready=1;LOG("Vulkan main menu ready %ux%u",e->w,e->h);return 0;
 }
-static void frame(E*e){if(!e->ready)return;vkWaitForFences(e->dev,1,&e->fence,VK_TRUE,UINT64_MAX);uint32_t ix;if(vkAcquireNextImageKHR(e->dev,e->sw,UINT64_MAX,e->semA,0,&ix)!=VK_SUCCESS)return;if(e->scene)draw_world(e);else menu(e);void*m;if(vkMapMemory(e->dev,e->vm,0,e->nv*sizeof(V),0,&m))return;memcpy(m,e->v,e->nv*sizeof(V));vkUnmapMemory(e->dev,e->vm);VkCommandBuffer c=e->cmd[ix];vkResetCommandBuffer(c,0);VkCommandBufferBeginInfo bi={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};vkBeginCommandBuffer(c,&bi);VkClearValue cl={.color={{.035f,.052f,.07f,1}}};VkRenderPassBeginInfo ri={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,.renderPass=e->rp,.framebuffer=e->fb[ix],.renderArea={{0,0},{e->w,e->h}},.clearValueCount=1,.pClearValues=&cl};vkCmdBeginRenderPass(c,&ri,VK_SUBPASS_CONTENTS_INLINE);VkViewport vp={0,0,(float)e->w,(float)e->h,0,1};VkRect2D sc={{0,0},{e->w,e->h}};vkCmdSetViewport(c,0,1,&vp);vkCmdSetScissor(c,0,1,&sc);vkCmdBindPipeline(c,VK_PIPELINE_BIND_POINT_GRAPHICS,e->pipe);vkCmdBindDescriptorSets(c,VK_PIPELINE_BIND_POINT_GRAPHICS,e->layout,0,1,&e->descriptor_set,0,0);VkDeviceSize off=0;vkCmdBindVertexBuffers(c,0,1,&e->vb,&off);vkCmdDraw(c,e->nv,1,0,0);vkCmdEndRenderPass(c);vkEndCommandBuffer(c);vkResetFences(e->dev,1,&e->fence);VkPipelineStageFlags wait=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;VkSubmitInfo si={.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semA,.pWaitDstStageMask=&wait,.commandBufferCount=1,.pCommandBuffers=&c,.signalSemaphoreCount=1,.pSignalSemaphores=&e->semB};if(vkQueueSubmit(e->q,1,&si,e->fence))return;VkPresentInfoKHR pr={.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semB,.swapchainCount=1,.pSwapchains=&e->sw,.pImageIndices=&ix};vkQueuePresentKHR(e->q,&pr);}
-static void closevk(E*e){if(e->dev)vkDeviceWaitIdle(e->dev);if(e->dev){if(e->fence)vkDestroyFence(e->dev,e->fence,0);if(e->descriptor_pool)vkDestroyDescriptorPool(e->dev,e->descriptor_pool,0);if(e->atlas_sampler)vkDestroySampler(e->dev,e->atlas_sampler,0);if(e->atlas_view)vkDestroyImageView(e->dev,e->atlas_view,0);if(e->atlas)vkDestroyImage(e->dev,e->atlas,0);if(e->atlas_mem)vkFreeMemory(e->dev,e->atlas_mem,0);if(e->descriptor_layout)vkDestroyDescriptorSetLayout(e->dev,e->descriptor_layout,0);if(e->semA)vkDestroySemaphore(e->dev,e->semA,0);if(e->semB)vkDestroySemaphore(e->dev,e->semB,0);if(e->vb)vkDestroyBuffer(e->dev,e->vb,0);if(e->vm)vkFreeMemory(e->dev,e->vm,0);if(e->pool)vkDestroyCommandPool(e->dev,e->pool,0);for(uint32_t i=0;i<e->n;i++){if(e->fb&&e->fb[i])vkDestroyFramebuffer(e->dev,e->fb[i],0);if(e->views&&e->views[i])vkDestroyImageView(e->dev,e->views[i],0);}if(e->pipe)vkDestroyPipeline(e->dev,e->pipe,0);if(e->layout)vkDestroyPipelineLayout(e->dev,e->layout,0);if(e->rp)vkDestroyRenderPass(e->dev,e->rp,0);if(e->sw)vkDestroySwapchainKHR(e->dev,e->sw,0);vkDestroyDevice(e->dev,0);}if(e->surface&&e->in)vkDestroySurfaceKHR(e->in,e->surface,0);if(e->in)vkDestroyInstance(e->in,0);free(e->imgs);free(e->views);free(e->fb);free(e->cmd);e->ready=0;memset(&e->in,0,sizeof(e->in));e->dev=0;e->surface=0;}
+static void frame(E*e){if(!e->ready)return;struct timespec now;if(clock_gettime(CLOCK_MONOTONIC,&now)==0){uint64_t ns=(uint64_t)now.tv_sec*1000000000ull+(uint64_t)now.tv_nsec;if(e->last_frame_ns&&e->sprite_ready){uint64_t dt=(ns-e->last_frame_ns)/1000000ull;if(dt>100u)dt=100u;animation_update(&e->animator,&e->animations,(uint32_t)dt);}e->last_frame_ns=ns;}vkWaitForFences(e->dev,1,&e->fence,VK_TRUE,UINT64_MAX);uint32_t ix;if(vkAcquireNextImageKHR(e->dev,e->sw,UINT64_MAX,e->semA,0,&ix)!=VK_SUCCESS)return;if(e->scene)draw_world(e);else menu(e);void*m;if(vkMapMemory(e->dev,e->vm,0,e->nv*sizeof(V),0,&m))return;memcpy(m,e->v,e->nv*sizeof(V));vkUnmapMemory(e->dev,e->vm);VkCommandBuffer c=e->cmd[ix];vkResetCommandBuffer(c,0);VkCommandBufferBeginInfo bi={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};vkBeginCommandBuffer(c,&bi);VkClearValue cl={.color={{.035f,.052f,.07f,1}}};VkRenderPassBeginInfo ri={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,.renderPass=e->rp,.framebuffer=e->fb[ix],.renderArea={{0,0},{e->w,e->h}},.clearValueCount=1,.pClearValues=&cl};vkCmdBeginRenderPass(c,&ri,VK_SUBPASS_CONTENTS_INLINE);VkViewport vp={0,0,(float)e->w,(float)e->h,0,1};VkRect2D sc={{0,0},{e->w,e->h}};vkCmdSetViewport(c,0,1,&vp);vkCmdSetScissor(c,0,1,&sc);vkCmdBindPipeline(c,VK_PIPELINE_BIND_POINT_GRAPHICS,e->pipe);vkCmdBindDescriptorSets(c,VK_PIPELINE_BIND_POINT_GRAPHICS,e->layout,0,1,&e->descriptor_set,0,0);VkDeviceSize off=0;vkCmdBindVertexBuffers(c,0,1,&e->vb,&off);vkCmdDraw(c,e->nv,1,0,0);vkCmdEndRenderPass(c);vkEndCommandBuffer(c);vkResetFences(e->dev,1,&e->fence);VkPipelineStageFlags wait=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;VkSubmitInfo si={.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semA,.pWaitDstStageMask=&wait,.commandBufferCount=1,.pCommandBuffers=&c,.signalSemaphoreCount=1,.pSignalSemaphores=&e->semB};if(vkQueueSubmit(e->q,1,&si,e->fence))return;VkPresentInfoKHR pr={.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semB,.swapchainCount=1,.pSwapchains=&e->sw,.pImageIndices=&ix};vkQueuePresentKHR(e->q,&pr);}
+static void closevk(E*e){if(e->dev)vkDeviceWaitIdle(e->dev);if(e->dev){if(e->fence)vkDestroyFence(e->dev,e->fence,0);if(e->sprite_sampler)vkDestroySampler(e->dev,e->sprite_sampler,0);if(e->sprite_view)vkDestroyImageView(e->dev,e->sprite_view,0);if(e->sprite_image)vkDestroyImage(e->dev,e->sprite_image,0);if(e->sprite_memory)vkFreeMemory(e->dev,e->sprite_memory,0);if(e->descriptor_pool)vkDestroyDescriptorPool(e->dev,e->descriptor_pool,0);if(e->atlas_sampler)vkDestroySampler(e->dev,e->atlas_sampler,0);if(e->atlas_view)vkDestroyImageView(e->dev,e->atlas_view,0);if(e->atlas)vkDestroyImage(e->dev,e->atlas,0);if(e->atlas_mem)vkFreeMemory(e->dev,e->atlas_mem,0);if(e->descriptor_layout)vkDestroyDescriptorSetLayout(e->dev,e->descriptor_layout,0);if(e->semA)vkDestroySemaphore(e->dev,e->semA,0);if(e->semB)vkDestroySemaphore(e->dev,e->semB,0);if(e->vb)vkDestroyBuffer(e->dev,e->vb,0);if(e->vm)vkFreeMemory(e->dev,e->vm,0);if(e->pool)vkDestroyCommandPool(e->dev,e->pool,0);for(uint32_t i=0;i<e->n;i++){if(e->fb&&e->fb[i])vkDestroyFramebuffer(e->dev,e->fb[i],0);if(e->views&&e->views[i])vkDestroyImageView(e->dev,e->views[i],0);}if(e->pipe)vkDestroyPipeline(e->dev,e->pipe,0);if(e->layout)vkDestroyPipelineLayout(e->dev,e->layout,0);if(e->rp)vkDestroyRenderPass(e->dev,e->rp,0);if(e->sw)vkDestroySwapchainKHR(e->dev,e->sw,0);vkDestroyDevice(e->dev,0);}if(e->surface&&e->in)vkDestroySurfaceKHR(e->in,e->surface,0);if(e->in)vkDestroyInstance(e->in,0);free(e->imgs);free(e->views);free(e->fb);free(e->cmd);e->ready=0;memset(&e->in,0,sizeof(e->in));e->dev=0;e->surface=0;}
 static int32_t input(struct android_app*a,AInputEvent*ev){
  E*e=a->userData;
  if(!e->ready||AInputEvent_getType(ev)!=AINPUT_EVENT_TYPE_MOTION)return 0;
