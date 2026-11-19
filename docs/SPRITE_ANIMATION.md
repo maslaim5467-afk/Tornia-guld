@@ -31,8 +31,8 @@ The loader validates every rectangle against the decoded source image dimensions
 ## Current limits
 
 - Metadata rectangles are authored explicitly; automatic computer-vision detection of arbitrary sprite sheets is not part of this prototype.
-- The player movement controller currently drives idle, walk and run clip selection. The renderer applies the mirror flag to the UVs for right-facing movement; the pure UV mapping is covered by host tests. The sheet also contains separately labelled right-facing rows, but the current movement controller intentionally uses the verified left-facing frames mirrored until the right-facing source frames are confirmed visually. Action clips are registered but are not yet triggered by gameplay events.
-- The sprite texture is currently a dedicated Vulkan sampled image; a general asset/resource manager is still future work.
+- The player movement controller currently drives idle, walk and run clip selection through the reusable per-character controller. The renderer applies the mirror flag to the UVs for right-facing movement; the pure UV mapping is covered by host tests. The sheet also contains separately labelled right-facing rows, but the current movement controller intentionally uses the verified left-facing frames mirrored until the right-facing source frames are confirmed visually. Action clips are registered but are not yet triggered by gameplay events.
+- The sprite texture is currently a dedicated Vulkan sampled image; a general asset/resource manager is still future work. Characters using different sprite sheets will need their own loaded `AnimationSet`/texture resource, while each character still keeps independent playback state.
 
 ## Host tests
 
