@@ -114,9 +114,12 @@ static uint32_t memtype(E*e,uint32_t mask,VkMemoryPropertyFlags flags);
 static void push_sprite(E*e,float x,float y,float w,float h,const AnimationFrame*f,int flip_x){
  if(!f||!e->sprite_width||!e->sprite_height)return;
  float l=x*2/e->w-1,rr=(x+w)*2/e->w-1,t=y*2/e->h-1,bb=(y+h)*2/e->h-1;
- float u0=(float)f->x/e->sprite_width,v0=(float)f->y/e->sprite_height;
- float u1=(float)(f->x+f->width)/e->sprite_width,v1=(float)(f->y+f->height)/e->sprite_height;
- V a={l,t,u0,v0,1,1,1,1,2},b={rr,t,u1,v0,1,1,1,1,2},d={rr,bb,u1,v1,1,1,1,1,2},c={l,bb,u0,v1,1,1,1,1,2};
+ float uv[8];
+ animation_frame_uvs(f,(uint16_t)e->sprite_width,(uint16_t)e->sprite_height,flip_x,uv);
+ V a={l,t,uv[0],uv[1],1,1,1,1,2};
+ V b={rr,t,uv[2],uv[3],1,1,1,1,2};
+ V d={rr,bb,uv[4],uv[5],1,1,1,1,2};
+ V c={l,bb,uv[6],uv[7],1,1,1,1,2};
  if(e->nv+6>MAXV)return;
  e->v[e->nv++]=a;e->v[e->nv++]=b;e->v[e->nv++]=d;e->v[e->nv++]=a;e->v[e->nv++]=d;e->v[e->nv++]=c;
 }
