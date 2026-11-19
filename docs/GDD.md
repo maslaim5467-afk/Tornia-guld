@@ -426,6 +426,8 @@ This section is the active checklist for completing the GDD. Answers should be a
 - [x] How should the player learn about consequences? Use a context-sensitive combination of immediate feedback, gradual revelation, and hidden consequences.
 
 ### E. Character and systems
+- [x] Which broad resource types are intended? Separate Stamina, Energy, and Mana (MP) resources; their exact rules and uses remain TBD.
+- [x] What enables a character to use magic? Magical aptitude/talent; its origin, prevalence, and development remain TBD.
 - [ ] Which character attributes and needs exist?
 - [ ] What do Health, Awareness, and Energy each represent?
 - [ ] Are there skills, experience, levels, or other progression systems?
@@ -474,3 +476,5 @@ This section is the active checklist for completing the GDD. Answers should be a
 | D-019 | Use a hybrid enemy-targeting approach | Confirmed design direction | Manual enemy selection, directional/free aiming, and lock-on targeting may be used depending on weapon and combat situation. Exact rules, switching behavior, input mapping, and compatibility remain TBD. |
 | D-020 | Use hybrid real-time action combat | Confirmed design direction | Combat normally unfolds continuously in real time; selected abilities or mechanics may alter combat flow or timing. Whether they pause, slow, or otherwise modify time, and exact rules, remain TBD. |
 | D-021 | Support blocking, dodging, and parrying as complementary defensive methods | Confirmed design direction | Exact mechanics, timing windows, effectiveness, risks, costs, and equipment/skill requirements remain TBD. |
+| D-022 | Treat Stamina, Energy, and Mana (MP) as distinct resource concepts | Confirmed design direction | Stamina supports immediate physical actions; Mana powers magical abilities; Energy is a separate resource whose exact role remains TBD. Costs, recovery, limits, and interactions remain TBD. |
+| D-023 | Magical ability requires a special magical aptitude/talent | Confirmed design direction | Whether aptitude is innate, can awaken or be acquired later, how common it is, and how it develops remain TBD. |
