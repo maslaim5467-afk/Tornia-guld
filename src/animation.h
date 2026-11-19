@@ -42,5 +42,8 @@ void animation_update(AnimationPlayer *player, const AnimationSet *set,
                       uint32_t delta_ms);
 const AnimationFrame *animation_current_frame(const AnimationPlayer *player,
                                                const AnimationSet *set);
+void animation_frame_uvs(const AnimationFrame *frame,
+                        uint16_t image_width, uint16_t image_height,
+                        int flip_x, float uv[8]);
 
 #endif
