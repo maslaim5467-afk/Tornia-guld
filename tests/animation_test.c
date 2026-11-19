@@ -37,7 +37,7 @@ int main(int argc, char **argv) {
         assert(first.playback.elapsed_ms == 0);
         assert(first.flip_x == 1);
 
-        assert(animation_controller_update(&second, &set, "hit", 0, 50) == 0);
+        assert(animation_controller_update(&second, &set, "hit", 0, 100) == 0);
         assert(second.playback.frame_index == 1 && second.playback.finished);
         assert(strcmp(first.active_clip, "idle") == 0);
         assert(strcmp(second.active_clip, "hit") == 0);
