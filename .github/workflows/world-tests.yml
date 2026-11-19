@@ -1,0 +1,21 @@
+name: World core tests
+
+on:
+  push:
+    branches:
+      - "feature/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  world-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Compile portable world core with strict warnings
+        run: cc -std=c11 -Wall -Wextra -Werror -pedantic src/world.c tests/world_test.c -o world_test
+      - name: Run deterministic world and camera tests
+        run: ./world_test
