@@ -7,7 +7,7 @@
 #define WORLD_HEIGHT 30u
 #define WORLD_TILE_SIZE 128.0f
 #define WORLD_MAX_OVERLAYS 2u
-#define WORLD_OVERLAY_COUNT 12u
+#define WORLD_OVERLAY_COUNT 13u
 
 typedef struct {
     uint8_t overlay_count;
