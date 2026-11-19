@@ -31,5 +31,6 @@ void player_set_input(Player *player, float x, float y);
 void player_update(Player *player, uint32_t delta_ms,
                    float world_width, float world_height);
 const char *player_animation_name(const Player *player);
+int player_animation_flip_x(const Player *player);
 
 #endif
