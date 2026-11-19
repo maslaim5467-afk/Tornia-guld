@@ -33,6 +33,10 @@ void world_camera_pan(WorldCamera *camera, float dx, float dy,
                       float viewport_width, float viewport_height);
 void world_camera_clamp(WorldCamera *camera,
                         float viewport_width, float viewport_height);
+void world_camera_follow(WorldCamera *camera, float target_x, float target_y,
+                         float anchor_x, float anchor_y,
+                         float viewport_width, float viewport_height,
+                         float delta_seconds, float responsiveness);
 float world_camera_world_x(const WorldCamera *camera, float screen_x);
 float world_camera_world_y(const WorldCamera *camera, float screen_y);
 
