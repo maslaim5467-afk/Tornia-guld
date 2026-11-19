@@ -1,0 +1,19 @@
+name: Player movement tests
+
+on:
+  push:
+    branches: ["feature/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  player-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Compile portable player core
+        run: cc -std=c11 -Wall -Wextra -Werror -pedantic src/player.c tests/player_test.c -lm -o player_test
+      - name: Run player movement and bounds tests
+        run: ./player_test
