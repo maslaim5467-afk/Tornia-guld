@@ -16,4 +16,4 @@ jobs:
       - name: Compile animation tests
         run: cc -std=c11 -Wall -Wextra -Werror -pedantic src/animation.c tests/animation_test.c -o /tmp/animation_test
       - name: Run animation tests
-        run: /tmp/animation_test
+        run: /tmp/animation_test assets/sprites/characters/player/player.anim
