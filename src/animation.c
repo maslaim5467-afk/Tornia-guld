@@ -123,3 +123,29 @@ const AnimationFrame *animation_current_frame(const AnimationPlayer *player,
     if (player->frame_index >= clip->frame_count) return NULL;
     return &set->frames[clip->first_frame + player->frame_index];
 }
+
+void animation_frame_uvs(const AnimationFrame *frame,
+                         uint16_t image_width, uint16_t image_height,
+                         int flip_x, float uv[8]) {
+    float left, right, top, bottom;
+    if (!uv) return;
+    for (int i = 0; i < 8; ++i) uv[i] = 0.0f;
+    if (!frame || !image_width || !image_height) return;
+
+    left = (float)frame->x / (float)image_width;
+    right = (float)(frame->x + frame->width) / (float)image_width;
+    top = (float)frame->y / (float)image_height;
+    bottom = (float)(frame->y + frame->height) / (float)image_height;
+
+    if (flip_x) {
+        float temp = left;
+        left = right;
+        right = temp;
+    }
+
+    /* Clockwise quad order: top-left, top-right, bottom-right, bottom-left. */
+    uv[0] = left;  uv[1] = top;
+    uv[2] = right; uv[3] = top;
+    uv[4] = right; uv[5] = bottom;
+    uv[6] = left;  uv[7] = bottom;
+}
