@@ -405,6 +405,7 @@ This section is the active checklist for completing the GDD. Answers should be a
 - [x] How should the camera behave? Hybrid: follow the player during ordinary exploration, with different behavior allowed in selected stages or situations.
 - [x] Is movement free in 2D, platform-based, grid-based, or something else? Free 360-degree movement in the 2D world.
 - [x] Can movement direction and attack direction differ? Yes, subject to specific combat mechanics; exact restrictions and weapon rules remain TBD.
+- [x] How should enemy targeting work? Hybrid approach: manual enemy selection, directional/free aiming, and lock-on may be used according to weapon and combat situation; exact rules remain TBD.
 - [ ] How does the player interact with objects and characters?
 - [ ] Which controls are always visible, and which are contextual?
 
@@ -468,3 +469,4 @@ This section is the active checklist for completing the GDD. Answers should be a
 | D-016 | The world follows consistent, fair internal laws and is not artificially balanced to the player's strength | Confirmed design philosophy | Exact creature ecology, danger cues, encounter logic, combat rules, and chance remain open |
 | D-017 | Use a 2D Top-Down camera perspective with hybrid camera behavior | Confirmed | Camera follows the player during ordinary exploration; selected stages or situations may use different camera behavior. Exact triggers and camera techniques remain TBD. |
 | D-018 | Use free 360-degree movement and allow movement direction to differ from attack direction under specific combat mechanics | Confirmed design direction | The player may move one way while attacking another, but this is not unrestricted or universal. Weapon-specific rules and exact constraints remain TBD. |
+| D-019 | Use a hybrid enemy-targeting approach | Confirmed design direction | Manual enemy selection, directional/free aiming, and lock-on targeting may be used depending on weapon and combat situation. Exact rules, switching behavior, input mapping, and compatibility remain TBD. |
