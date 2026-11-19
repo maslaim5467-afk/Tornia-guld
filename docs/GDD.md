@@ -170,7 +170,7 @@ The following order reflects the current story documentation:
 | Stealth | TBD |
 | Exploration | TBD |
 | Dialogue / interaction | TBD |
-| Magic / special abilities | TBD |
+| Magic / special abilities | A broad, learnable field; a character may learn multiple forms of magic (for example, stone magic and water magic). Innate aptitude influences the degree or rate of mastery; exact rules remain TBD |
 
 ### 4.3 Controls
 - Initial prototype input: touchscreen.
@@ -429,6 +429,7 @@ This section is the active checklist for completing the GDD. Answers should be a
 - [x] Which broad resource types are intended? Separate Stamina, Energy, and Mana (MP) resources; their exact rules and uses remain TBD.
 - [x] What enables a character to use magic? A special magical aptitude that may be innate or may awaken later in life; causes, conditions, prevalence, and development remain TBD.
 - [x] What broad paths can develop magical ability? A combination of learning from teachers, personal practice/experience, and discovering ancient books, artifacts, or knowledge; exact mechanics remain TBD.
+- [x] Is magic restricted to one innate element/type, or can characters learn multiple forms? Magic is a broad, learnable field; a character may learn multiple forms (for example, stone magic and water magic). Innate aptitude influences mastery; exact rules remain TBD.
 - [ ] Which character attributes and needs exist?
 - [ ] What do Health, Awareness, and Energy each represent?
 - [ ] Are there skills, experience, levels, or other progression systems?
@@ -480,3 +481,4 @@ This section is the active checklist for completing the GDD. Answers should be a
 | D-022 | Treat Stamina, Energy, and Mana (MP) as distinct resource concepts | Confirmed design direction | Stamina supports immediate physical actions; Mana powers magical abilities; Energy is a separate resource whose exact role remains TBD. Costs, recovery, limits, and interactions remain TBD. |
 | D-023 | Magical ability requires a special magical aptitude/talent | Confirmed design direction | The aptitude may be innate from birth or awaken/become apparent later in life. Causes, conditions, prevalence, and development remain TBD; awakening does not necessarily grant immediate spellcasting ability. |
 | D-024 | Magical progression can use multiple complementary paths | Confirmed design direction | Growth may come through teachers/instruction, personal practice and experience, and discovery of ancient books, artifacts, or knowledge. Relative contribution and exact mechanics remain TBD. |
+| D-025 | Magic is a broad field that can be learned in multiple forms by the same character | Confirmed design direction | A character may learn more than one form of magic (for example, stone magic and water magic). Innate aptitude influences the degree or rate of mastery rather than automatically limiting the character to one form. Exact aptitude, learning, specialization, and mastery mechanics remain TBD. |
