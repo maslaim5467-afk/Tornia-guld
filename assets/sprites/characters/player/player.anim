@@ -1,0 +1,75 @@
+# Sprite-sheet coordinates in pixels; origin is top-left.
+# Format: clip <name> <frame-duration-ms> <loop|once>
+#         frame <x> <y> <width> <height>
+# Rectangles isolate the character pixels; no per-frame PNG files are needed.
+
+clip idle 180 loop
+frame 81 45 103 161
+frame 249 46 93 159
+frame 405 46 97 159
+frame 561 45 107 160
+end
+
+clip walk_down 120 loop
+frame 887 45 96 164
+frame 1035 47 85 163
+frame 1170 47 92 163
+frame 1313 45 97 164
+end
+
+clip walk_up 120 loop
+frame 82 254 100 160
+frame 244 255 92 158
+frame 405 255 87 158
+frame 558 254 102 159
+end
+
+clip walk_left 120 loop
+frame 851 256 109 158
+frame 1009 256 102 155
+frame 1168 256 118 157
+frame 1324 256 125 157
+end
+
+clip walk_right 120 loop
+frame 83 463 110 145
+frame 245 463 105 145
+frame 409 464 98 146
+frame 564 462 104 148
+end
+
+clip run_down 90 loop
+frame 872 461 103 153
+frame 1020 464 108 150
+frame 1174 464 90 150
+frame 1329 462 103 152
+end
+
+clip run_up 90 loop
+frame 80 657 102 156
+frame 245 658 89 155
+frame 404 658 87 155
+frame 556 657 102 155
+end
+
+clip run_left 90 loop
+frame 863 658 107 145
+frame 1015 659 111 145
+frame 1163 660 120 148
+frame 1321 660 121 143
+end
+
+clip run_right 90 loop
+frame 85 853 103 149
+frame 248 853 109 149
+frame 409 852 96 150
+frame 561 852 115 135
+end
+
+clip actions 140 once
+frame 801 859 127 138
+frame 950 861 130 134
+frame 1109 890 119 104
+frame 1252 852 97 141
+frame 1370 867 110 128
+end
