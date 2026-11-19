@@ -17,7 +17,7 @@ typedef struct {
  uint32_t qf,w,h,n; VkSwapchainKHR sw; VkFormat fmt; VkImage *imgs; VkImageView *views; VkFramebuffer *fb;
  VkRenderPass rp; VkPipelineLayout layout; VkPipeline pipe; VkCommandPool pool; VkCommandBuffer *cmd;
  VkBuffer vb; VkDeviceMemory vm; VkSemaphore semA,semB; VkFence fence;
- V v[MAXV]; uint32_t nv; int ready,notice,scene,dragging;
+ V v[MAXV]; uint32_t nv; int ready,notice,scene,dragging,world_logged;
  World world; WorldCamera camera; float last_x,last_y;
 } E;
 static void push(E*e,float x,float y,float w,float h,float r,float g,float b){
@@ -72,6 +72,7 @@ static void draw_world(E*e){
  push(e,0,0,e->w,42,.025f,.065f,.035f);
  label(e,"WORLD",20,14,2,.91f,.88f,.68f);
  label(e,"DRAG TO MOVE",20,e->h-30,1.5f,.78f,.87f,.70f);
+ if(!e->world_logged){LOG("World scene ready: vertices=%u viewport=%ux%u",e->nv,e->w,e->h);e->world_logged=1;}
 }
 
 static void menu(E*e){
@@ -135,4 +136,17 @@ static int32_t input(struct android_app*a,AInputEvent*ev){
  return 1;
 }
 static void command(struct android_app*a,int32_t c){E*e=a->userData;if(c==APP_CMD_INIT_WINDOW&&a->window){if(setup(e)){ERR("Vulkan setup failed");closevk(e);}}else if(c==APP_CMD_TERM_WINDOW)closevk(e);}
-void android_main(struct android_app*s){app_dummy();E e={0};e.app=s;s->userData=&e;s->onAppCmd=command;s->onInputEvent=input;LOG("TORNIA GULD native menu boot");while(!s->destroyRequested){int events;struct android_poll_source*src;int id=ALooper_pollOnce(e.ready?0:-1,0,&events,(void**)&src);while(id>=0){if(src)src->process(s,src);if(s->destroyRequested)break;id=ALooper_pollOnce(0,0,&events,(void**)&src);}if(e.ready)frame(&e);}closevk(&e);}
+void android_main(struct android_app*s){
+ app_dummy();
+ E*e=(E*)calloc(1,sizeof(E));
+ if(!e){ERR("Unable to allocate engine state");return;}
+ e->app=s;s->userData=e;s->onAppCmd=command;s->onInputEvent=input;
+ LOG("TORNIA GULD native boot; engine state=%zu bytes",sizeof(E));
+ while(!s->destroyRequested){
+  int events;struct android_poll_source*src;
+  int id=ALooper_pollOnce(e->ready?0:-1,0,&events,(void**)&src);
+  while(id>=0){if(src)src->process(s,src);if(s->destroyRequested)break;id=ALooper_pollOnce(0,0,&events,(void**)&src);}
+  if(e->ready)frame(e);
+ }
+ closevk(e);s->userData=NULL;free(e);
+}
