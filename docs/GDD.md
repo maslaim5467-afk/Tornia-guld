@@ -433,7 +433,8 @@ This section is the active checklist for completing the GDD. Answers should be a
 - [ ] How are material and spiritual/personal progression represented to the player?
 - [ ] How does the karma system evaluate meaningful choices (intention, outcome, nature of the choice, or a combination)?
 - [ ] Are karma effects visible, hidden, or partly discoverable by the player?
-- [ ] What are the combat, stealth, and survival rules?
+- [x] What is the broad combat structure? Hybrid real-time action: combat normally runs continuously, while selected abilities or mechanics may alter its flow or timing; exact effects remain TBD.
+- [ ] What are the detailed combat, stealth, and survival rules?
 - [ ] What inventory, equipment, and economy systems are required?
 
 ### F. Content and presentation
@@ -470,3 +471,4 @@ This section is the active checklist for completing the GDD. Answers should be a
 | D-017 | Use a 2D Top-Down camera perspective with hybrid camera behavior | Confirmed | Camera follows the player during ordinary exploration; selected stages or situations may use different camera behavior. Exact triggers and camera techniques remain TBD. |
 | D-018 | Use free 360-degree movement and allow movement direction to differ from attack direction under specific combat mechanics | Confirmed design direction | The player may move one way while attacking another, but this is not unrestricted or universal. Weapon-specific rules and exact constraints remain TBD. |
 | D-019 | Use a hybrid enemy-targeting approach | Confirmed design direction | Manual enemy selection, directional/free aiming, and lock-on targeting may be used depending on weapon and combat situation. Exact rules, switching behavior, input mapping, and compatibility remain TBD. |
+| D-020 | Use hybrid real-time action combat | Confirmed design direction | Combat normally unfolds continuously in real time; selected abilities or mechanics may alter combat flow or timing. Whether they pause, slow, or otherwise modify time, and exact rules, remain TBD. |
