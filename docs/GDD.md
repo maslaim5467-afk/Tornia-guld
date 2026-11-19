@@ -9,6 +9,13 @@
 
 ---
 
+
+## World Structure
+
+- The game world uses a **continuous outdoor world**: the player can travel through connected outdoor areas such as streets, cities, wilderness, and routes without treating each area as a separate level.
+- Certain locations, such as houses, shops, important buildings, dungeons, and story-specific places, may use **independent interior spaces** entered from the outdoor world.
+- The intended experience is a continuous world with separate interior spaces, rather than one single environment containing every interior at all times.
+- The exact streaming, loading, transition, and world-boundary implementation remains **TBD** and will be determined during technical level/world design.
 ## 1. Game at a Glance
 
 | Field | Current information |
@@ -423,3 +430,4 @@ This section is the active checklist for completing the GDD. Answers should be a
 | D-009 | Player choices affect relationships and future opportunities | Confirmed | Scope and persistence of consequences remain open |
 | D-010 | Karma is a deep system influenced by meaningful choices, not routine everyday actions | Confirmed | Evaluation rules (intention, outcome, nature of choice) remain open |
 | D-011 | Consequences are communicated through a context-sensitive combination of immediate, gradual, and hidden feedback | Confirmed | Which method applies depends on the choice and its consequences |
+| D-012 | The world is continuous outdoors, with independent interior spaces for selected locations | Confirmed | Exact streaming and transition implementation remains open |
