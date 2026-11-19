@@ -25,11 +25,11 @@ typedef struct {
  VkBuffer vb; VkDeviceMemory vm; VkSemaphore semA,semB; VkFence fence;
  VkImage atlas; VkDeviceMemory atlas_mem; VkImageView atlas_view; VkSampler atlas_sampler;
  VkImage sprite_image; VkDeviceMemory sprite_memory; VkImageView sprite_view; VkSampler sprite_sampler;
- uint32_t sprite_width,sprite_height; AnimationSet animations; AnimationPlayer animator; int sprite_ready; uint64_t last_frame_ns;
+ uint32_t sprite_width,sprite_height; AnimationSet animations; AnimationController player_animation; int sprite_ready; uint64_t last_frame_ns;
  VkDescriptorSetLayout descriptor_layout; VkDescriptorPool descriptor_pool; VkDescriptorSet descriptor_set;
  V v[MAXV]; uint32_t nv; int ready,notice,scene,dragging,world_logged;
  World world; WorldCamera camera; float last_x,last_y;
- Player player; char active_clip[32]; int camera_follow_enabled;
+ Player player; int camera_follow_enabled;
  int joystick_active,joystick_pointer_id,camera_pointer_id;
 
 } E;
@@ -199,8 +199,10 @@ static int load_animation_config(E*e,const char*path){
  char*text=malloc((size_t)n+1u);if(!text){AAsset_close(a);return -1;}
  int got=AAsset_read(a,text,(size_t)n);AAsset_close(a);if(got!=(int)n){free(text);return -1;}text[n]='\0';
  int ok=animation_load_text(&e->animations,text,(uint16_t)e->sprite_width,(uint16_t)e->sprite_height);free(text);
- if(ok||animation_play(&e->animator,&e->animations,"idle"))return -1;
- e->sprite_ready=1;strcpy(e->active_clip,"idle");LOG("Animation system ready: %u clips / %u frames",e->animations.clip_count,e->animations.frame_count);return 0;
+ if(ok)return -1;
+ animation_controller_init(&e->player_animation);
+ if(animation_controller_update(&e->player_animation,&e->animations,"idle",0,0)!=0)return -1;
+ e->sprite_ready=1;LOG("Animation system ready: %u clips / %u frames",e->animations.clip_count,e->animations.frame_count);return 0;
 }
 
 static void draw_world(E*e){
@@ -225,13 +227,13 @@ static void draw_world(E*e){
   }
  }
  if(e->sprite_ready){
-  const AnimationFrame*f=animation_current_frame(&e->animator,&e->animations);
+  const AnimationFrame*f=animation_controller_current_frame(&e->player_animation,&e->animations);
   if(f){
    float screen_x=(e->player.x-e->camera.x)*e->camera.zoom;
    float screen_y=(e->player.y-e->camera.y)*e->camera.zoom;
    float height=WORLD_TILE_SIZE*.78f*e->camera.zoom;
    float width=height*(float)f->width/(float)f->height;
-   push_sprite(e,screen_x-width*.5f,screen_y-height,width,height,f,player_animation_flip_x(&e->player));
+   push_sprite(e,screen_x-width*.5f,screen_y-height,width,height,f,e->player_animation.flip_x);
   }
  }
  push(e,0,0,e->w,42,.025f,.065f,.035f);
@@ -451,9 +453,10 @@ static void frame(E*e){
   player_update(&e->player,delta_ms,(float)WORLD_WIDTH*WORLD_TILE_SIZE,(float)WORLD_HEIGHT*WORLD_TILE_SIZE);
   if(e->sprite_ready){
    const char*clip=player_animation_name(&e->player);
-   if(strcmp(clip,e->active_clip)!=0&&animation_play(&e->animator,&e->animations,clip)==0)
-    strcpy(e->active_clip,clip);
-   animation_update(&e->animator,&e->animations,delta_ms);
+   if(animation_controller_update(&e->player_animation,&e->animations,
+                                  clip,player_animation_flip_x(&e->player),
+                                  delta_ms)!=0)
+    ERR("Unable to select player animation: %s",clip);
   }
   if(e->camera_follow_enabled&&delta_ms){
    world_camera_follow(&e->camera,e->player.x,e->player.y,.5f,.55f,
