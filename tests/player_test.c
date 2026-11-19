@@ -27,6 +27,24 @@ int main(void) {
     assert(strcmp(player_animation_name(&player), "walk_left") == 0);
     assert(player.x < 640.0f);
 
+    player_set_input(&player, 1.0f, 0.0f);
+    player_update(&player, 16u, 3840.0f, 3840.0f);
+    assert(player.facing == PLAYER_FACING_RIGHT);
+    assert(strcmp(player_animation_name(&player), "walk_left") == 0);
+    assert(player_animation_flip_x(&player) == 1);
+
+    player_set_input(&player, 1.0f, 0.0f);
+    player_update(&player, 1000u, 3840.0f, 3840.0f);
+    assert(player.motion == PLAYER_MOTION_RUN);
+    assert(strcmp(player_animation_name(&player), "run_left") == 0);
+    assert(player_animation_flip_x(&player) == 1);
+
+    player_set_input(&player, -1.0f, 0.0f);
+    player_update(&player, 16u, 3840.0f, 3840.0f);
+    assert(player.facing == PLAYER_FACING_LEFT);
+    assert(strcmp(player_animation_name(&player), "run_left") == 0);
+    assert(player_animation_flip_x(&player) == 0);
+
     player_set_input(&player, 0.0f, 0.0f);
     player_update(&player, 16u, 3840.0f, 3840.0f);
     assert(player.motion == PLAYER_MOTION_IDLE);
