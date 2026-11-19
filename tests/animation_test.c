@@ -35,6 +35,24 @@ int main(int argc, char **argv) {
     const AnimationFrame *frame = animation_current_frame(&player, &set);
     assert(frame && frame->x == 8 && frame->y == 16);
 
+    {
+        AnimationFrame uv_frame = {10, 20, 30, 40};
+        float uv[8];
+        animation_frame_uvs(&uv_frame, 100, 200, 0, uv);
+        assert(uv[0] > 0.099f && uv[0] < 0.101f);
+        assert(uv[2] > 0.399f && uv[2] < 0.401f);
+        assert(uv[4] > 0.399f && uv[4] < 0.401f);
+        assert(uv[6] > 0.099f && uv[6] < 0.101f);
+
+        animation_frame_uvs(&uv_frame, 100, 200, 1, uv);
+        assert(uv[0] > 0.399f && uv[0] < 0.401f);
+        assert(uv[2] > 0.099f && uv[2] < 0.101f);
+        assert(uv[4] > 0.099f && uv[4] < 0.101f);
+        assert(uv[6] > 0.399f && uv[6] < 0.401f);
+        assert(uv[1] == uv[3] && uv[5] == uv[7]);
+    }
+
+
     assert(animation_load_text(&set, "clip bad 10 loop\nframe 30 0 8 8\nend\n", 32, 32) == -1);
     assert(set.clip_count == 0);
 
