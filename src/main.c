@@ -7,10 +7,12 @@
 #include <vulkan/vulkan.h>
 #include "world.h"
 #include "animation.h"
+#include "player.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <time.h>
+#include <stdio.h>
 #define LOG(...) __android_log_print(ANDROID_LOG_INFO,"TORNIA_GULD",__VA_ARGS__)
 #define ERR(...) __android_log_print(ANDROID_LOG_ERROR,"TORNIA_GULD",__VA_ARGS__)
 #define MAXV 40000
@@ -26,12 +28,58 @@ typedef struct {
  VkDescriptorSetLayout descriptor_layout; VkDescriptorPool descriptor_pool; VkDescriptorSet descriptor_set;
  V v[MAXV]; uint32_t nv; int ready,notice,scene,dragging,world_logged;
  World world; WorldCamera camera; float last_x,last_y;
+ Player player; char active_clip[32]; int camera_follow_enabled;
+ int joystick_active,joystick_pointer_id,camera_pointer_id;
+
 } E;
 static void push(E*e,float x,float y,float w,float h,float r,float g,float b){
  float l=x*2/e->w-1,rr=(x+w)*2/e->w-1,t=y*2/e->h-1,bb=(y+h)*2/e->h-1;
  V a={l,t,0,0,r,g,b,1,0},c={rr,t,0,0,r,g,b,1,0},d={rr,bb,0,0,r,g,b,1,0},f={l,bb,0,0,r,g,b,1,0};
  if(e->nv+6>MAXV)return;e->v[e->nv++]=a;e->v[e->nv++]=c;e->v[e->nv++]=d;e->v[e->nv++]=a;e->v[e->nv++]=d;e->v[e->nv++]=f;
 }
+
+static void push_disk(E*e,float cx,float cy,float radius,float r,float g,float b,float a){
+ const unsigned segments=28u;
+ for(unsigned i=0;i<segments;i++){
+  float a0=(float)i*6.28318530718f/(float)segments;
+  float a1=(float)(i+1u)*6.28318530718f/(float)segments;
+  float x0=cx+cosf(a0)*radius,y0=cy+sinf(a0)*radius;
+  float x1=cx+cosf(a1)*radius,y1=cy+sinf(a1)*radius;
+  if(e->nv+3u>MAXV)return;
+  V c={cx*2/e->w-1,cy*2/e->h-1,0,0,r,g,b,a,0};
+  V p0={x0*2/e->w-1,y0*2/e->h-1,0,0,r,g,b,a,0};
+  V p1={x1*2/e->w-1,y1*2/e->h-1,0,0,r,g,b,a,0};
+  e->v[e->nv++]=c;e->v[e->nv++]=p0;e->v[e->nv++]=p1;
+ }
+}
+static void joystick_metrics(E*e,float*cx,float*cy,float*radius){
+ float short_side=(float)(e->w<e->h?e->w:e->h);
+ *radius=short_side*0.09f;
+ if(*radius<42.0f)*radius=42.0f;
+ if(*radius>76.0f)*radius=76.0f;
+ *cx=*radius*1.65f;
+ *cy=(float)e->h-*radius*1.55f;
+}
+static void draw_joystick(E*e){
+ float cx,cy,r,knob_x=0.0f,knob_y=0.0f;
+ joystick_metrics(e,&cx,&cy,&r);
+ if(e->joystick_active){
+  knob_x=e->player.input_x*e->player.input_strength*r*0.62f;
+  knob_y=e->player.input_y*e->player.input_strength*r*0.62f;
+ }
+ push_disk(e,cx,cy,r,.035f,.055f,.075f,.48f);
+ push_disk(e,cx,cy,r*.86f,.24f,.29f,.32f,.36f);
+ push_disk(e,cx+knob_x,cy+knob_y,r*.36f,.77f,.82f,.84f,.72f);
+}
+static void update_joystick(E*e,float x,float y){
+ float cx,cy,r,dx,dy,magnitude;
+ joystick_metrics(e,&cx,&cy,&r);
+ dx=(x-cx)/r;dy=(y-cy)/r;
+ magnitude=sqrtf(dx*dx+dy*dy);
+ if(magnitude>1.0f){dx/=magnitude;dy/=magnitude;}
+ player_set_input(&e->player,dx,dy);
+}
+
 static const uint8_t* bits(char c){
  #define GL(ch,a,b,c1,d,e,f,g) case ch:{static const uint8_t z[7]={a,b,c1,d,e,f,g};return z;}
  static const uint8_t z[7]={0};switch(c){
@@ -148,7 +196,7 @@ static int load_animation_config(E*e,const char*path){
  int got=AAsset_read(a,text,(size_t)n);AAsset_close(a);if(got!=(int)n){free(text);return -1;}text[n]='\0';
  int ok=animation_load_text(&e->animations,text,(uint16_t)e->sprite_width,(uint16_t)e->sprite_height);free(text);
  if(ok||animation_play(&e->animator,&e->animations,"idle"))return -1;
- e->sprite_ready=1;LOG("Animation system ready: %u clips / %u frames",e->animations.clip_count,e->animations.frame_count);return 0;
+ e->sprite_ready=1;strcpy(e->active_clip,"idle");LOG("Animation system ready: %u clips / %u frames",e->animations.clip_count,e->animations.frame_count);return 0;
 }
 
 static void draw_world(E*e){
@@ -172,10 +220,20 @@ static void draw_world(E*e){
    push_tex(e,ox,oy,size,size,id);
   }
  }
- if(e->sprite_ready){const AnimationFrame*f=animation_current_frame(&e->animator,&e->animations);if(f){float h=e->h*.30f,w=h*(float)f->width/(float)f->height;push_sprite(e,e->w*.5f-w*.5f,e->h*.52f-h*.5f,w,h,f);}}
+ if(e->sprite_ready){
+  const AnimationFrame*f=animation_current_frame(&e->animator,&e->animations);
+  if(f){
+   float screen_x=(e->player.x-e->camera.x)*e->camera.zoom;
+   float screen_y=(e->player.y-e->camera.y)*e->camera.zoom;
+   float height=WORLD_TILE_SIZE*.78f*e->camera.zoom;
+   float width=height*(float)f->width/(float)f->height;
+   push_sprite(e,screen_x-width*.5f,screen_y-height,width,height,f);
+  }
+ }
  push(e,0,0,e->w,42,.025f,.065f,.035f);
  label(e,"WORLD",20,14,2,.91f,.88f,.68f);
- label(e,"DRAG TO MOVE",20,e->h-30,1.5f,.78f,.87f,.70f);
+ label(e,"DRAG TO MOVE CAMERA",20,e->h-30,1.5f,.78f,.87f,.70f);
+ draw_joystick(e);
  if(!e->world_logged){LOG("Textured world ready: vertices=%u viewport=%ux%u",e->nv,e->w,e->h);e->world_logged=1;}
 }
 
@@ -374,29 +432,89 @@ static int setup(E*e){
  VkBufferCreateInfo bi={.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,.size=sizeof(V)*MAXV,.usage=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,.sharingMode=VK_SHARING_MODE_EXCLUSIVE};if(vkCreateBuffer(e->dev,&bi,0,&e->vb))return -1;VkMemoryRequirements mr;vkGetBufferMemoryRequirements(e->dev,e->vb,&mr);uint32_t mt=memtype(e,mr.memoryTypeBits,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);if(mt==UINT32_MAX)return -1;VkMemoryAllocateInfo mai={.sType=VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,.allocationSize=mr.size,.memoryTypeIndex=mt};if(vkAllocateMemory(e->dev,&mai,0,&e->vm))return -1;vkBindBufferMemory(e->dev,e->vb,e->vm,0);
  if(create_texture_atlas(e)){ERR("Terrain texture atlas creation failed");return -1;}
   if(create_sprite_texture(e,"sprites/characters/player/file_00000000ce0c8210854d0157a262ddc5.png")!=0||load_animation_config(e,"sprites/characters/player/player.anim")!=0){ERR("Player sprite animation resources could not be initialized");return -1;}
- VkSemaphoreCreateInfo sem={.sType=VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};vkCreateSemaphore(e->dev,&sem,0,&e->semA);vkCreateSemaphore(e->dev,&sem,0,&e->semB);VkFenceCreateInfo fe={.sType=VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,.flags=VK_FENCE_CREATE_SIGNALED_BIT};vkCreateFence(e->dev,&fe,0,&e->fence);world_generate(&e->world,0x4f4c5245u);world_camera_reset(&e->camera);e->camera.x=((float)WORLD_WIDTH*WORLD_TILE_SIZE-(float)e->w)*.5f;e->camera.y=((float)WORLD_HEIGHT*WORLD_TILE_SIZE-(float)e->h)*.5f;world_camera_clamp(&e->camera,(float)e->w,(float)e->h);e->ready=1;LOG("Vulkan main menu ready %ux%u",e->w,e->h);return 0;
+ VkSemaphoreCreateInfo sem={.sType=VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};vkCreateSemaphore(e->dev,&sem,0,&e->semA);vkCreateSemaphore(e->dev,&sem,0,&e->semB);VkFenceCreateInfo fe={.sType=VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,.flags=VK_FENCE_CREATE_SIGNALED_BIT};vkCreateFence(e->dev,&fe,0,&e->fence);world_generate(&e->world,0x4f4c5245u);player_init(&e->player,(float)WORLD_WIDTH*WORLD_TILE_SIZE*.5f,(float)WORLD_HEIGHT*WORLD_TILE_SIZE*.5f);world_camera_reset(&e->camera);e->camera.x=e->player.x-(float)e->w*.5f;e->camera.y=e->player.y-(float)e->h*.55f;world_camera_clamp(&e->camera,(float)e->w,(float)e->h);e->camera_follow_enabled=1;e->joystick_pointer_id=-1;e->camera_pointer_id=-1;e->ready=1;LOG("Vulkan main menu ready %ux%u",e->w,e->h);return 0;
 }
-static void frame(E*e){if(!e->ready)return;struct timespec now;if(clock_gettime(CLOCK_MONOTONIC,&now)==0){uint64_t ns=(uint64_t)now.tv_sec*1000000000ull+(uint64_t)now.tv_nsec;if(e->last_frame_ns&&e->sprite_ready){uint64_t dt=(ns-e->last_frame_ns)/1000000ull;if(dt>100u)dt=100u;animation_update(&e->animator,&e->animations,(uint32_t)dt);}e->last_frame_ns=ns;}vkWaitForFences(e->dev,1,&e->fence,VK_TRUE,UINT64_MAX);uint32_t ix;if(vkAcquireNextImageKHR(e->dev,e->sw,UINT64_MAX,e->semA,0,&ix)!=VK_SUCCESS)return;if(e->scene)draw_world(e);else menu(e);void*m;if(vkMapMemory(e->dev,e->vm,0,e->nv*sizeof(V),0,&m))return;memcpy(m,e->v,e->nv*sizeof(V));vkUnmapMemory(e->dev,e->vm);VkCommandBuffer c=e->cmd[ix];vkResetCommandBuffer(c,0);VkCommandBufferBeginInfo bi={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};vkBeginCommandBuffer(c,&bi);VkClearValue cl={.color={{.035f,.052f,.07f,1}}};VkRenderPassBeginInfo ri={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,.renderPass=e->rp,.framebuffer=e->fb[ix],.renderArea={{0,0},{e->w,e->h}},.clearValueCount=1,.pClearValues=&cl};vkCmdBeginRenderPass(c,&ri,VK_SUBPASS_CONTENTS_INLINE);VkViewport vp={0,0,(float)e->w,(float)e->h,0,1};VkRect2D sc={{0,0},{e->w,e->h}};vkCmdSetViewport(c,0,1,&vp);vkCmdSetScissor(c,0,1,&sc);vkCmdBindPipeline(c,VK_PIPELINE_BIND_POINT_GRAPHICS,e->pipe);vkCmdBindDescriptorSets(c,VK_PIPELINE_BIND_POINT_GRAPHICS,e->layout,0,1,&e->descriptor_set,0,0);VkDeviceSize off=0;vkCmdBindVertexBuffers(c,0,1,&e->vb,&off);vkCmdDraw(c,e->nv,1,0,0);vkCmdEndRenderPass(c);vkEndCommandBuffer(c);vkResetFences(e->dev,1,&e->fence);VkPipelineStageFlags wait=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;VkSubmitInfo si={.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semA,.pWaitDstStageMask=&wait,.commandBufferCount=1,.pCommandBuffers=&c,.signalSemaphoreCount=1,.pSignalSemaphores=&e->semB};if(vkQueueSubmit(e->q,1,&si,e->fence))return;VkPresentInfoKHR pr={.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semB,.swapchainCount=1,.pSwapchains=&e->sw,.pImageIndices=&ix};vkQueuePresentKHR(e->q,&pr);}
+static void frame(E*e){
+ if(!e->ready)return;
+ uint32_t delta_ms=0;
+ struct timespec now;
+ if(clock_gettime(CLOCK_MONOTONIC,&now)==0){
+  uint64_t ns=(uint64_t)now.tv_sec*1000000000ull+(uint64_t)now.tv_nsec;
+  if(e->last_frame_ns){uint64_t delta=(ns-e->last_frame_ns)/1000000ull;if(delta>100u)delta=100u;delta_ms=(uint32_t)delta;}
+  e->last_frame_ns=ns;
+ }
+ if(e->scene){
+  player_update(&e->player,delta_ms,(float)WORLD_WIDTH*WORLD_TILE_SIZE,(float)WORLD_HEIGHT*WORLD_TILE_SIZE);
+  if(e->sprite_ready){
+   const char*clip=player_animation_name(&e->player);
+   if(strcmp(clip,e->active_clip)!=0&&animation_play(&e->animator,&e->animations,clip)==0)
+    strcpy(e->active_clip,clip);
+   animation_update(&e->animator,&e->animations,delta_ms);
+  }
+  if(e->camera_follow_enabled&&delta_ms){
+   world_camera_follow(&e->camera,e->player.x,e->player.y,.5f,.55f,
+                       (float)e->w,(float)e->h,(float)delta_ms/1000.0f,8.0f);
+  }
+ }vkWaitForFences(e->dev,1,&e->fence,VK_TRUE,UINT64_MAX);uint32_t ix;if(vkAcquireNextImageKHR(e->dev,e->sw,UINT64_MAX,e->semA,0,&ix)!=VK_SUCCESS)return;if(e->scene)draw_world(e);else menu(e);void*m;if(vkMapMemory(e->dev,e->vm,0,e->nv*sizeof(V),0,&m))return;memcpy(m,e->v,e->nv*sizeof(V));vkUnmapMemory(e->dev,e->vm);VkCommandBuffer c=e->cmd[ix];vkResetCommandBuffer(c,0);VkCommandBufferBeginInfo bi={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};vkBeginCommandBuffer(c,&bi);VkClearValue cl={.color={{.035f,.052f,.07f,1}}};VkRenderPassBeginInfo ri={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,.renderPass=e->rp,.framebuffer=e->fb[ix],.renderArea={{0,0},{e->w,e->h}},.clearValueCount=1,.pClearValues=&cl};vkCmdBeginRenderPass(c,&ri,VK_SUBPASS_CONTENTS_INLINE);VkViewport vp={0,0,(float)e->w,(float)e->h,0,1};VkRect2D sc={{0,0},{e->w,e->h}};vkCmdSetViewport(c,0,1,&vp);vkCmdSetScissor(c,0,1,&sc);vkCmdBindPipeline(c,VK_PIPELINE_BIND_POINT_GRAPHICS,e->pipe);vkCmdBindDescriptorSets(c,VK_PIPELINE_BIND_POINT_GRAPHICS,e->layout,0,1,&e->descriptor_set,0,0);VkDeviceSize off=0;vkCmdBindVertexBuffers(c,0,1,&e->vb,&off);vkCmdDraw(c,e->nv,1,0,0);vkCmdEndRenderPass(c);vkEndCommandBuffer(c);vkResetFences(e->dev,1,&e->fence);VkPipelineStageFlags wait=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;VkSubmitInfo si={.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semA,.pWaitDstStageMask=&wait,.commandBufferCount=1,.pCommandBuffers=&c,.signalSemaphoreCount=1,.pSignalSemaphores=&e->semB};if(vkQueueSubmit(e->q,1,&si,e->fence))return;VkPresentInfoKHR pr={.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semB,.swapchainCount=1,.pSwapchains=&e->sw,.pImageIndices=&ix};vkQueuePresentKHR(e->q,&pr);}
 static void closevk(E*e){if(e->dev)vkDeviceWaitIdle(e->dev);if(e->dev){if(e->fence)vkDestroyFence(e->dev,e->fence,0);if(e->sprite_sampler)vkDestroySampler(e->dev,e->sprite_sampler,0);if(e->sprite_view)vkDestroyImageView(e->dev,e->sprite_view,0);if(e->sprite_image)vkDestroyImage(e->dev,e->sprite_image,0);if(e->sprite_memory)vkFreeMemory(e->dev,e->sprite_memory,0);if(e->descriptor_pool)vkDestroyDescriptorPool(e->dev,e->descriptor_pool,0);if(e->atlas_sampler)vkDestroySampler(e->dev,e->atlas_sampler,0);if(e->atlas_view)vkDestroyImageView(e->dev,e->atlas_view,0);if(e->atlas)vkDestroyImage(e->dev,e->atlas,0);if(e->atlas_mem)vkFreeMemory(e->dev,e->atlas_mem,0);if(e->descriptor_layout)vkDestroyDescriptorSetLayout(e->dev,e->descriptor_layout,0);if(e->semA)vkDestroySemaphore(e->dev,e->semA,0);if(e->semB)vkDestroySemaphore(e->dev,e->semB,0);if(e->vb)vkDestroyBuffer(e->dev,e->vb,0);if(e->vm)vkFreeMemory(e->dev,e->vm,0);if(e->pool)vkDestroyCommandPool(e->dev,e->pool,0);for(uint32_t i=0;i<e->n;i++){if(e->fb&&e->fb[i])vkDestroyFramebuffer(e->dev,e->fb[i],0);if(e->views&&e->views[i])vkDestroyImageView(e->dev,e->views[i],0);}if(e->pipe)vkDestroyPipeline(e->dev,e->pipe,0);if(e->layout)vkDestroyPipelineLayout(e->dev,e->layout,0);if(e->rp)vkDestroyRenderPass(e->dev,e->rp,0);if(e->sw)vkDestroySwapchainKHR(e->dev,e->sw,0);vkDestroyDevice(e->dev,0);}if(e->surface&&e->in)vkDestroySurfaceKHR(e->in,e->surface,0);if(e->in)vkDestroyInstance(e->in,0);free(e->imgs);free(e->views);free(e->fb);free(e->cmd);e->ready=0;memset(&e->in,0,sizeof(e->in));e->dev=0;e->surface=0;}
 static int32_t input(struct android_app*a,AInputEvent*ev){
  E*e=a->userData;
  if(!e->ready||AInputEvent_getType(ev)!=AINPUT_EVENT_TYPE_MOTION)return 0;
- int action=AMotionEvent_getAction(ev)&AMOTION_EVENT_ACTION_MASK;
- float x=AMotionEvent_getX(ev,0),y=AMotionEvent_getY(ev,0);
- if(e->scene){
-  if(action==AMOTION_EVENT_ACTION_DOWN){e->dragging=1;e->last_x=x;e->last_y=y;return 1;}
-  if(action==AMOTION_EVENT_ACTION_MOVE&&e->dragging){
-   world_camera_pan(&e->camera,x-e->last_x,y-e->last_y,(float)e->w,(float)e->h);
-   e->last_x=x;e->last_y=y;return 1;
+ int raw=AMotionEvent_getAction(ev);
+ int action=raw&AMOTION_EVENT_ACTION_MASK;
+ int pointer_index=(raw&AMOTION_EVENT_ACTION_POINTER_INDEX_MASK)>>AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
+ size_t count=(size_t)AMotionEvent_getPointerCount(ev);
+ if(pointer_index<0||(size_t)pointer_index>=count)pointer_index=0;
+ int pointer_id=AMotionEvent_getPointerId(ev,(size_t)pointer_index);
+ float x=AMotionEvent_getX(ev,(size_t)pointer_index);
+ float y=AMotionEvent_getY(ev,(size_t)pointer_index);
+
+ if(!e->scene){
+  if(action==AMOTION_EVENT_ACTION_UP){
+   float cx=e->w*.5f,bw=e->w*.36f,bx=cx-bw/2,by=e->h*.52f,bh=e->h*.14f;
+   if(x>=bx&&x<=bx+bw&&y>=by&&y<=by+bh){e->scene=1;e->notice=0;return 1;}
+   float ey=by+bh+e->h*.045f;
+   if(x>=bx&&x<=bx+bw&&y>=ey&&y<=ey+bh){ANativeActivity_finish(a->activity);return 1;}
   }
-  if(action==AMOTION_EVENT_ACTION_UP||action==AMOTION_EVENT_ACTION_CANCEL){e->dragging=0;return 1;}
   return 1;
  }
- if(action==AMOTION_EVENT_ACTION_UP){
-  float cx=e->w*.5f,bw=e->w*.36f,bx=cx-bw/2,by=e->h*.52f,bh=e->h*.14f;
-  if(x>=bx&&x<=bx+bw&&y>=by&&y<=by+bh){e->scene=1;e->notice=0;return 1;}
-  float ey=by+bh+e->h*.045f;
-  if(x>=bx&&x<=bx+bw&&y>=ey&&y<=ey+bh){ANativeActivity_finish(a->activity);return 1;}
+
+ if(action==AMOTION_EVENT_ACTION_DOWN||action==AMOTION_EVENT_ACTION_POINTER_DOWN){
+  float cx,cy,r;joystick_metrics(e,&cx,&cy,&r);
+  float dx=x-cx,dy=y-cy;
+  if(!e->joystick_active&&dx*dx+dy*dy<=r*r*2.25f){
+   e->joystick_active=1;e->joystick_pointer_id=pointer_id;
+   e->camera_follow_enabled=1;update_joystick(e,x,y);
+  }else if(!e->dragging){
+   e->dragging=1;e->camera_pointer_id=pointer_id;
+   e->camera_follow_enabled=0;e->last_x=x;e->last_y=y;
+  }
+  return 1;
+ }
+ if(action==AMOTION_EVENT_ACTION_MOVE){
+  for(size_t i=0;i<count;i++){
+   int id=AMotionEvent_getPointerId(ev,i);
+   float px=AMotionEvent_getX(ev,i),py=AMotionEvent_getY(ev,i);
+   if(e->joystick_active&&id==e->joystick_pointer_id)update_joystick(e,px,py);
+   if(e->dragging&&id==e->camera_pointer_id){
+    world_camera_pan(&e->camera,px-e->last_x,py-e->last_y,(float)e->w,(float)e->h);
+    e->last_x=px;e->last_y=py;
+   }
+  }
+  return 1;
+ }
+ if(action==AMOTION_EVENT_ACTION_UP||action==AMOTION_EVENT_ACTION_POINTER_UP){
+  if(e->joystick_active&&pointer_id==e->joystick_pointer_id){
+   e->joystick_active=0;e->joystick_pointer_id=-1;player_set_input(&e->player,0.0f,0.0f);
+  }
+  if(e->dragging&&pointer_id==e->camera_pointer_id){
+   e->dragging=0;e->camera_pointer_id=-1;
+  }
+  return 1;
+ }
+ if(action==AMOTION_EVENT_ACTION_CANCEL){
+  e->joystick_active=0;e->joystick_pointer_id=-1;player_set_input(&e->player,0.0f,0.0f);
+  e->dragging=0;e->camera_pointer_id=-1;return 1;
  }
  return 1;
 }
