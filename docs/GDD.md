@@ -428,6 +428,7 @@ This section is the active checklist for completing the GDD. Answers should be a
 ### E. Character and systems
 - [x] Which broad resource types are intended? Separate Stamina, Energy, and Mana (MP) resources; their exact rules and uses remain TBD.
 - [x] What enables a character to use magic? A special magical aptitude that may be innate or may awaken later in life; causes, conditions, prevalence, and development remain TBD.
+- [x] What broad paths can develop magical ability? A combination of learning from teachers, personal practice/experience, and discovering ancient books, artifacts, or knowledge; exact mechanics remain TBD.
 - [ ] Which character attributes and needs exist?
 - [ ] What do Health, Awareness, and Energy each represent?
 - [ ] Are there skills, experience, levels, or other progression systems?
@@ -478,3 +479,4 @@ This section is the active checklist for completing the GDD. Answers should be a
 | D-021 | Support blocking, dodging, and parrying as complementary defensive methods | Confirmed design direction | Exact mechanics, timing windows, effectiveness, risks, costs, and equipment/skill requirements remain TBD. |
 | D-022 | Treat Stamina, Energy, and Mana (MP) as distinct resource concepts | Confirmed design direction | Stamina supports immediate physical actions; Mana powers magical abilities; Energy is a separate resource whose exact role remains TBD. Costs, recovery, limits, and interactions remain TBD. |
 | D-023 | Magical ability requires a special magical aptitude/talent | Confirmed design direction | The aptitude may be innate from birth or awaken/become apparent later in life. Causes, conditions, prevalence, and development remain TBD; awakening does not necessarily grant immediate spellcasting ability. |
+| D-024 | Magical progression can use multiple complementary paths | Confirmed design direction | Growth may come through teachers/instruction, personal practice and experience, and discovery of ancient books, artifacts, or knowledge. Relative contribution and exact mechanics remain TBD. |
