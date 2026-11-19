@@ -4,19 +4,21 @@
 #include <android/asset_manager.h>
 #include <android/native_window.h>
 #include <vulkan/vulkan.h>
+#include "world.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #define LOG(...) __android_log_print(ANDROID_LOG_INFO,"TORNIA_GULD",__VA_ARGS__)
 #define ERR(...) __android_log_print(ANDROID_LOG_ERROR,"TORNIA_GULD",__VA_ARGS__)
-#define MAXV 12000
+#define MAXV 40000
 typedef struct {float x,y,r,g,b,a;} V;
 typedef struct {
  struct android_app *app; VkInstance in; VkSurfaceKHR surface; VkPhysicalDevice gpu; VkDevice dev; VkQueue q;
  uint32_t qf,w,h,n; VkSwapchainKHR sw; VkFormat fmt; VkImage *imgs; VkImageView *views; VkFramebuffer *fb;
  VkRenderPass rp; VkPipelineLayout layout; VkPipeline pipe; VkCommandPool pool; VkCommandBuffer *cmd;
  VkBuffer vb; VkDeviceMemory vm; VkSemaphore semA,semB; VkFence fence;
- V v[MAXV]; uint32_t nv; int ready,notice;
+ V v[MAXV]; uint32_t nv; int ready,notice,scene,dragging;
+ World world; WorldCamera camera; float last_x,last_y;
 } E;
 static void push(E*e,float x,float y,float w,float h,float r,float g,float b){
  float l=x*2/e->w-1,rr=(x+w)*2/e->w-1,t=y*2/e->h-1,bb=(y+h)*2/e->h-1;
@@ -39,6 +41,39 @@ static const uint8_t* bits(char c){
 static void label(E*e,const char*s,float x,float y,float k,float r,float g,float b){
  for(;*s;s++,x+=6*k){const uint8_t*p=bits(*s);for(int j=0;j<7;j++)for(int i=0;i<5;i++)if(p[j]&(1<<(4-i)))push(e,x+i*k,y+j*k,k,k,r,g,b);}
 }
+static void draw_world(E*e){
+ e->nv=0;
+ push(e,0,0,e->w,e->h,.055f,.13f,.065f);
+ const float tile_px=WORLD_TILE_SIZE*e->camera.zoom;
+ for(uint32_t y=0;y<WORLD_HEIGHT;y++)for(uint32_t x=0;x<WORLD_WIDTH;x++){
+  const WorldTile*t=&e->world.tiles[y][x];
+  float sx=((float)x*WORLD_TILE_SIZE-e->camera.x)*e->camera.zoom;
+  float sy=((float)y*WORLD_TILE_SIZE-e->camera.y)*e->camera.zoom;
+  if(sx+tile_px<0||sy+tile_px<0||sx>e->w||sy>e->h)continue;
+  float shade=(float)t->variation*.012f;
+  push(e,sx,sy,tile_px+1,tile_px+1,.105f+shade,.285f+shade,.095f+shade*.45f);
+  for(uint32_t k=0;k<t->overlay_count;k++){
+   uint32_t id=t->overlays[k];
+   float ox=sx+tile_px*(.20f+(float)((id*17u+x*7u)%46u)/100.0f);
+   float oy=sy+tile_px*(.30f+(float)((id*11u+y*9u)%36u)/100.0f);
+   float stem=tile_px*.075f,leaf=tile_px*.16f;
+   float green=(id%3u==0u)?.24f:.17f;
+   push(e,ox,oy+stem*.55f,stem*.55f,stem*1.8f,.045f,.19f,.055f);
+   push(e,ox-leaf*.70f,oy,leaf,stem*1.2f,.075f,green,.055f);
+   push(e,ox+stem*.35f,oy+stem*.15f,leaf*.95f,stem*1.15f,.10f,.34f,.07f);
+   if(id%4u==0u){float dot=tile_px*.055f;push(e,ox+stem*.05f,oy-dot*.45f,dot,dot,.88f,.76f,.24f);}
+  }
+ }
+ float px=(WORLD_WIDTH*.5f*WORLD_TILE_SIZE-e->camera.x)*e->camera.zoom;
+ float py=(WORLD_HEIGHT*.5f*WORLD_TILE_SIZE-e->camera.y)*e->camera.zoom;
+ float mark=tile_px*.20f;
+ push(e,px-mark*.5f,py-mark*.5f,mark,mark,.92f,.72f,.28f);
+ push(e,px-mark*.24f,py-mark*.24f,mark*.48f,mark*.48f,.17f,.13f,.07f);
+ push(e,0,0,e->w,42,.025f,.065f,.035f);
+ label(e,"WORLD",20,14,2,.91f,.88f,.68f);
+ label(e,"DRAG TO MOVE",20,e->h-30,1.5f,.78f,.87f,.70f);
+}
+
 static void menu(E*e){
  e->nv=0;float cx=e->w*.5f,bw=e->w*.36f,bh=e->h*.14f,bx=cx-bw/2,by=e->h*.52f;
  push(e,0,0,e->w,e->h,.035f,.052f,.07f);
@@ -73,10 +108,31 @@ static int setup(E*e){
  for(uint32_t i=0;i<e->n;i++){VkFramebufferCreateInfo fi={.sType=VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,.renderPass=e->rp,.attachmentCount=1,.pAttachments=&e->views[i],.width=e->w,.height=e->h,.layers=1};if(vkCreateFramebuffer(e->dev,&fi,0,&e->fb[i]))return -1;}
  VkCommandPoolCreateInfo pci={.sType=VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,.flags=VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,.queueFamilyIndex=e->qf};if(vkCreateCommandPool(e->dev,&pci,0,&e->pool))return -1;VkCommandBufferAllocateInfo cai={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,.commandPool=e->pool,.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY,.commandBufferCount=e->n};if(vkAllocateCommandBuffers(e->dev,&cai,e->cmd))return -1;
  VkBufferCreateInfo bi={.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,.size=sizeof(V)*MAXV,.usage=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,.sharingMode=VK_SHARING_MODE_EXCLUSIVE};if(vkCreateBuffer(e->dev,&bi,0,&e->vb))return -1;VkMemoryRequirements mr;vkGetBufferMemoryRequirements(e->dev,e->vb,&mr);uint32_t mt=memtype(e,mr.memoryTypeBits,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);if(mt==UINT32_MAX)return -1;VkMemoryAllocateInfo mai={.sType=VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,.allocationSize=mr.size,.memoryTypeIndex=mt};if(vkAllocateMemory(e->dev,&mai,0,&e->vm))return -1;vkBindBufferMemory(e->dev,e->vb,e->vm,0);
- VkSemaphoreCreateInfo sem={.sType=VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};vkCreateSemaphore(e->dev,&sem,0,&e->semA);vkCreateSemaphore(e->dev,&sem,0,&e->semB);VkFenceCreateInfo fe={.sType=VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,.flags=VK_FENCE_CREATE_SIGNALED_BIT};vkCreateFence(e->dev,&fe,0,&e->fence);e->ready=1;LOG("Vulkan main menu ready %ux%u",e->w,e->h);return 0;
+ VkSemaphoreCreateInfo sem={.sType=VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};vkCreateSemaphore(e->dev,&sem,0,&e->semA);vkCreateSemaphore(e->dev,&sem,0,&e->semB);VkFenceCreateInfo fe={.sType=VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,.flags=VK_FENCE_CREATE_SIGNALED_BIT};vkCreateFence(e->dev,&fe,0,&e->fence);world_generate(&e->world,0x4f4c5245u);world_camera_reset(&e->camera);e->camera.x=((float)WORLD_WIDTH*WORLD_TILE_SIZE-(float)e->w)*.5f;e->camera.y=((float)WORLD_HEIGHT*WORLD_TILE_SIZE-(float)e->h)*.5f;world_camera_clamp(&e->camera,(float)e->w,(float)e->h);e->ready=1;LOG("Vulkan main menu ready %ux%u",e->w,e->h);return 0;
 }
-static void frame(E*e){if(!e->ready)return;vkWaitForFences(e->dev,1,&e->fence,VK_TRUE,UINT64_MAX);uint32_t ix;if(vkAcquireNextImageKHR(e->dev,e->sw,UINT64_MAX,e->semA,0,&ix)!=VK_SUCCESS)return;menu(e);void*m;if(vkMapMemory(e->dev,e->vm,0,e->nv*sizeof(V),0,&m))return;memcpy(m,e->v,e->nv*sizeof(V));vkUnmapMemory(e->dev,e->vm);VkCommandBuffer c=e->cmd[ix];vkResetCommandBuffer(c,0);VkCommandBufferBeginInfo bi={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};vkBeginCommandBuffer(c,&bi);VkClearValue cl={.color={{.035f,.052f,.07f,1}}};VkRenderPassBeginInfo ri={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,.renderPass=e->rp,.framebuffer=e->fb[ix],.renderArea={{0,0},{e->w,e->h}},.clearValueCount=1,.pClearValues=&cl};vkCmdBeginRenderPass(c,&ri,VK_SUBPASS_CONTENTS_INLINE);VkViewport vp={0,0,(float)e->w,(float)e->h,0,1};VkRect2D sc={{0,0},{e->w,e->h}};vkCmdSetViewport(c,0,1,&vp);vkCmdSetScissor(c,0,1,&sc);vkCmdBindPipeline(c,VK_PIPELINE_BIND_POINT_GRAPHICS,e->pipe);VkDeviceSize off=0;vkCmdBindVertexBuffers(c,0,1,&e->vb,&off);vkCmdDraw(c,e->nv,1,0,0);vkCmdEndRenderPass(c);vkEndCommandBuffer(c);vkResetFences(e->dev,1,&e->fence);VkPipelineStageFlags wait=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;VkSubmitInfo si={.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semA,.pWaitDstStageMask=&wait,.commandBufferCount=1,.pCommandBuffers=&c,.signalSemaphoreCount=1,.pSignalSemaphores=&e->semB};if(vkQueueSubmit(e->q,1,&si,e->fence))return;VkPresentInfoKHR pr={.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semB,.swapchainCount=1,.pSwapchains=&e->sw,.pImageIndices=&ix};vkQueuePresentKHR(e->q,&pr);}
+static void frame(E*e){if(!e->ready)return;vkWaitForFences(e->dev,1,&e->fence,VK_TRUE,UINT64_MAX);uint32_t ix;if(vkAcquireNextImageKHR(e->dev,e->sw,UINT64_MAX,e->semA,0,&ix)!=VK_SUCCESS)return;if(e->scene)draw_world(e);else menu(e);void*m;if(vkMapMemory(e->dev,e->vm,0,e->nv*sizeof(V),0,&m))return;memcpy(m,e->v,e->nv*sizeof(V));vkUnmapMemory(e->dev,e->vm);VkCommandBuffer c=e->cmd[ix];vkResetCommandBuffer(c,0);VkCommandBufferBeginInfo bi={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};vkBeginCommandBuffer(c,&bi);VkClearValue cl={.color={{.035f,.052f,.07f,1}}};VkRenderPassBeginInfo ri={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,.renderPass=e->rp,.framebuffer=e->fb[ix],.renderArea={{0,0},{e->w,e->h}},.clearValueCount=1,.pClearValues=&cl};vkCmdBeginRenderPass(c,&ri,VK_SUBPASS_CONTENTS_INLINE);VkViewport vp={0,0,(float)e->w,(float)e->h,0,1};VkRect2D sc={{0,0},{e->w,e->h}};vkCmdSetViewport(c,0,1,&vp);vkCmdSetScissor(c,0,1,&sc);vkCmdBindPipeline(c,VK_PIPELINE_BIND_POINT_GRAPHICS,e->pipe);VkDeviceSize off=0;vkCmdBindVertexBuffers(c,0,1,&e->vb,&off);vkCmdDraw(c,e->nv,1,0,0);vkCmdEndRenderPass(c);vkEndCommandBuffer(c);vkResetFences(e->dev,1,&e->fence);VkPipelineStageFlags wait=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;VkSubmitInfo si={.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semA,.pWaitDstStageMask=&wait,.commandBufferCount=1,.pCommandBuffers=&c,.signalSemaphoreCount=1,.pSignalSemaphores=&e->semB};if(vkQueueSubmit(e->q,1,&si,e->fence))return;VkPresentInfoKHR pr={.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semB,.swapchainCount=1,.pSwapchains=&e->sw,.pImageIndices=&ix};vkQueuePresentKHR(e->q,&pr);}
 static void closevk(E*e){if(e->dev)vkDeviceWaitIdle(e->dev);if(e->dev){if(e->fence)vkDestroyFence(e->dev,e->fence,0);if(e->semA)vkDestroySemaphore(e->dev,e->semA,0);if(e->semB)vkDestroySemaphore(e->dev,e->semB,0);if(e->vb)vkDestroyBuffer(e->dev,e->vb,0);if(e->vm)vkFreeMemory(e->dev,e->vm,0);if(e->pool)vkDestroyCommandPool(e->dev,e->pool,0);for(uint32_t i=0;i<e->n;i++){if(e->fb&&e->fb[i])vkDestroyFramebuffer(e->dev,e->fb[i],0);if(e->views&&e->views[i])vkDestroyImageView(e->dev,e->views[i],0);}if(e->pipe)vkDestroyPipeline(e->dev,e->pipe,0);if(e->layout)vkDestroyPipelineLayout(e->dev,e->layout,0);if(e->rp)vkDestroyRenderPass(e->dev,e->rp,0);if(e->sw)vkDestroySwapchainKHR(e->dev,e->sw,0);vkDestroyDevice(e->dev,0);}if(e->surface&&e->in)vkDestroySurfaceKHR(e->in,e->surface,0);if(e->in)vkDestroyInstance(e->in,0);free(e->imgs);free(e->views);free(e->fb);free(e->cmd);e->ready=0;memset(&e->in,0,sizeof(e->in));e->dev=0;e->surface=0;}
-static int32_t input(struct android_app*a,AInputEvent*ev){E*e=a->userData;if(!e->ready||AInputEvent_getType(ev)!=AINPUT_EVENT_TYPE_MOTION)return 0;if(AMotionEvent_getAction(ev)!=AMOTION_EVENT_ACTION_UP)return 1;float x=AMotionEvent_getX(ev,0),y=AMotionEvent_getY(ev,0),cx=e->w*.5f,bw=e->w*.36f,bx=cx-bw/2,by=e->h*.52f,bh=e->h*.14f;if(x>=bx&&x<=bx+bw&&y>=by&&y<=by+bh){e->notice=1;return 1;}float ey=by+bh+e->h*.045f;if(x>=bx&&x<=bx+bw&&y>=ey&&y<=ey+bh){ANativeActivity_finish(a->activity);return 1;}return 1;}
+static int32_t input(struct android_app*a,AInputEvent*ev){
+ E*e=a->userData;
+ if(!e->ready||AInputEvent_getType(ev)!=AINPUT_EVENT_TYPE_MOTION)return 0;
+ int action=AMotionEvent_getAction(ev)&AMOTION_EVENT_ACTION_MASK;
+ float x=AMotionEvent_getX(ev,0),y=AMotionEvent_getY(ev,0);
+ if(e->scene){
+  if(action==AMOTION_EVENT_ACTION_DOWN){e->dragging=1;e->last_x=x;e->last_y=y;return 1;}
+  if(action==AMOTION_EVENT_ACTION_MOVE&&e->dragging){
+   world_camera_pan(&e->camera,x-e->last_x,y-e->last_y,(float)e->w,(float)e->h);
+   e->last_x=x;e->last_y=y;return 1;
+  }
+  if(action==AMOTION_EVENT_ACTION_UP||action==AMOTION_EVENT_ACTION_CANCEL){e->dragging=0;return 1;}
+  return 1;
+ }
+ if(action==AMOTION_EVENT_ACTION_UP){
+  float cx=e->w*.5f,bw=e->w*.36f,bx=cx-bw/2,by=e->h*.52f,bh=e->h*.14f;
+  if(x>=bx&&x<=bx+bw&&y>=by&&y<=by+bh){e->scene=1;e->notice=0;return 1;}
+  float ey=by+bh+e->h*.045f;
+  if(x>=bx&&x<=bx+bw&&y>=ey&&y<=ey+bh){ANativeActivity_finish(a->activity);return 1;}
+ }
+ return 1;
+}
 static void command(struct android_app*a,int32_t c){E*e=a->userData;if(c==APP_CMD_INIT_WINDOW&&a->window){if(setup(e)){ERR("Vulkan setup failed");closevk(e);}}else if(c==APP_CMD_TERM_WINDOW)closevk(e);}
 void android_main(struct android_app*s){app_dummy();E e={0};e.app=s;s->userData=&e;s->onAppCmd=command;s->onInputEvent=input;LOG("TORNIA GULD native menu boot");while(!s->destroyRequested){int events;struct android_poll_source*src;int id=ALooper_pollOnce(e.ready?0:-1,0,&events,(void**)&src);while(id>=0){if(src)src->process(s,src);if(s->destroyRequested)break;id=ALooper_pollOnce(0,0,&events,(void**)&src);}if(e.ready)frame(&e);}closevk(&e);}
