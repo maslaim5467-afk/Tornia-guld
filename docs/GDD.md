@@ -35,12 +35,13 @@ Tornia-guld is a 2D Pixel Art game set in a fantasy world with magical elements.
 The broader premise, central player fantasy, long-term objective, and full-game structure have not yet been defined in this document.
 
 ### 1.2 Design pillars
-These are categories to define, not approved design principles yet:
-- Player experience and intended emotional response — **TBD**
-- Exploration and interaction — **TBD**
-- Survival, stealth, combat, or other gameplay emphasis — **TBD**
-- Narrative delivery and player agency — **TBD**
-- Progression and long-term motivation — **TBD**
+The creator has identified the following core pillars:
+- **Adventure:** exploration and discovery are central parts of the experience.
+- **Holistic character progression:** the protagonist develops in both material and spiritual/personal dimensions.
+- **Emotional experience:** events and relationships should carry emotional weight for the player.
+- **Meaningful choices and consequences:** player decisions affect relationships with others and future opportunities.
+
+The relative priority, detailed mechanics, and full-game implementation of these pillars remain to be defined.
 
 ---
 
@@ -145,10 +146,27 @@ The following order reflects the current story documentation:
 ### 4.4 Difficulty and failure
 - Level 01 contains a one-minute avoidance challenge.
 - QTE rules are documented in docs/LEVEL_01.md.
-- Failure states, checkpoints, retries, death rules, difficulty settings, and consequences: **TBD**.
+- Failure states, checkpoints, retries, death rules, and difficulty settings: **TBD**.
+
+### 4.6 Choices, consequences, and karma
+- Player choices can have positive or negative consequences depending on the situation; the project does not impose a universal pre-labelled list of good and bad actions.
+- Choices directly affect the protagonist's relationships with other characters.
+- Choices can also affect future opportunities, including opportunities that may become available or be lost.
+- **Karma is a deep, distinct system:** routine everyday actions do not increase it. Meaningful choices are what influence karma.
+- Karma must not automatically be treated as the same thing as public reputation or other characters' opinions of the protagonist.
+- The exact rules for evaluating choices, including the roles of intention, outcome, and the nature of the choice, remain **TBD** and require creator approval.
 
 ### 4.5 Progression
-- Character progression, skills, attributes, equipment progression, unlocks, experience, and progression pacing: **TBD**.
+Progression is intended to be holistic, with two broad dimensions:
+
+**Material progression**
+- The protagonist can develop practical capabilities and their material circumstances. Specific attributes, skills, equipment, resources, and unlocks remain **TBD**.
+
+**Spiritual / personal progression**
+- The protagonist's developing personality should reflect the player's choices and actions over time.
+- The protagonist has an established identity, history, and some characteristics that remain fixed.
+- Other aspects of personality, outlook, behavior, and relationships can change through the player's actions and decisions.
+- This is not intended to be reduced to a simple good/evil meter. The exact traits, presentation, and mechanics remain **TBD**.
 
 ---
 
@@ -364,11 +382,16 @@ This section is the active checklist for completing the GDD. Answers should be a
 - [ ] What is the broad structure after Level 01?
 - [ ] Is the world divided into levels, regions, chapters, or an interconnected map?
 - [ ] Are there branching paths or player choices?
+- [ ] How far-reaching and persistent can the consequences of choices be?
 
 ### E. Character and systems
 - [ ] Which character attributes and needs exist?
 - [ ] What do Health, Awareness, and Energy each represent?
 - [ ] Are there skills, experience, levels, or other progression systems?
+- [ ] Which aspects of the protagonist's personality are fixed, and which can change?
+- [ ] How are material and spiritual/personal progression represented to the player?
+- [ ] How does the karma system evaluate meaningful choices (intention, outcome, nature of the choice, or a combination)?
+- [ ] Are karma effects visible, hidden, or partly discoverable by the player?
 - [ ] What are the combat, stealth, and survival rules?
 - [ ] What inventory, equipment, and economy systems are required?
 
@@ -392,3 +415,8 @@ This section is the active checklist for completing the GDD. Answers should be a
 | D-003 | Start the story directly after START GAME, with no extra world-introduction scene beforehand | Confirmed | Exact scene presentation remains open |
 | D-004 | First playable sequence is the cage escape-and-survival sequence in Level 01 | Confirmed in current story/level documents | Detailed interaction rules remain open |
 | D-005 | Use C, Vulkan, a custom engine, and Android NativeActivity for the initial technical foundation | Confirmed | See PROJECT_OVERVIEW.md |
+| D-006 | Core experience pillars are adventure, holistic progression, emotional impact, and meaningful choices with consequences | Confirmed | Relative weighting and implementation remain open |
+| D-007 | Character progression has material and spiritual/personal dimensions | Confirmed | Detailed attributes and mechanics remain open |
+| D-008 | The protagonist has some fixed identity traits and some personality traits that can change through player choices and actions | Confirmed | Exact fixed and mutable traits remain open |
+| D-009 | Player choices affect relationships and future opportunities | Confirmed | Scope and persistence of consequences remain open |
+| D-010 | Karma is a deep system influenced by meaningful choices, not routine everyday actions | Confirmed | Evaluation rules (intention, outcome, nature of choice) remain open |
