@@ -434,6 +434,7 @@ This section is the active checklist for completing the GDD. Answers should be a
 - [ ] How does the karma system evaluate meaningful choices (intention, outcome, nature of the choice, or a combination)?
 - [ ] Are karma effects visible, hidden, or partly discoverable by the player?
 - [x] What is the broad combat structure? Hybrid real-time action: combat normally runs continuously, while selected abilities or mechanics may alter its flow or timing; exact effects remain TBD.
+- [x] Which broad defensive methods should be supported? A combined system of blocking, dodging, and parrying; exact mechanics and requirements remain TBD.
 - [ ] What are the detailed combat, stealth, and survival rules?
 - [ ] What inventory, equipment, and economy systems are required?
 
@@ -472,3 +473,4 @@ This section is the active checklist for completing the GDD. Answers should be a
 | D-018 | Use free 360-degree movement and allow movement direction to differ from attack direction under specific combat mechanics | Confirmed design direction | The player may move one way while attacking another, but this is not unrestricted or universal. Weapon-specific rules and exact constraints remain TBD. |
 | D-019 | Use a hybrid enemy-targeting approach | Confirmed design direction | Manual enemy selection, directional/free aiming, and lock-on targeting may be used depending on weapon and combat situation. Exact rules, switching behavior, input mapping, and compatibility remain TBD. |
 | D-020 | Use hybrid real-time action combat | Confirmed design direction | Combat normally unfolds continuously in real time; selected abilities or mechanics may alter combat flow or timing. Whether they pause, slow, or otherwise modify time, and exact rules, remain TBD. |
+| D-021 | Support blocking, dodging, and parrying as complementary defensive methods | Confirmed design direction | Exact mechanics, timing windows, effectiveness, risks, costs, and equipment/skill requirements remain TBD. |
