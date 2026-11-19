@@ -16,6 +16,17 @@
 - Certain locations, such as houses, shops, important buildings, dungeons, and story-specific places, may use **independent interior spaces** entered from the outdoor world.
 - The intended experience is a continuous world with separate interior spaces, rather than one single environment containing every interior at all times.
 - The exact streaming, loading, transition, and world-boundary implementation remains **TBD** and will be determined during technical level/world design.
+
+## World Scale, Freedom, Time, and Travel
+
+- The intended world is **open and geographically continuous**. The player should not face arbitrary region locks as the default world design; natural, physical, narrative, or capability-based obstacles may still exist where appropriate. Exact access rules remain **TBD**.
+- The intended geography should have meaningful real-world-like distances and physical relationships. The creator's example is that two villages may be 10 km apart; the world should not treat such distances as arbitrary short transitions.
+- The proposed global time scale is **30 minutes of real time = 1 in-game day (24 in-game hours)**. This is a confirmed design direction, while exact clock behavior, pause behavior, offline progression, and simulation scheduling remain **TBD**.
+- Travel should use a **hybrid approach**: the player can experience journeys and encounters along the route, while a faster/abstracted travel option may be available where appropriate. Exact eligibility, interface, and implementation remain **TBD**.
+- Travel duration should be grounded in physical factors rather than a fixed arbitrary rule. Relevant factors may include distance, terrain, route quality, movement speed, character condition, equipment, weather, and other travel circumstances. The exact simulation model remains **TBD**.
+- Journeys should provide opportunities for meaningful world encounters and discoveries. Specific encounter types, frequency, and procedural/story-authored balance remain **TBD**.
+- A 10 km journey is not inherently a four-day walk under ordinary conditions; duration should emerge from the travel model. For example, at 4 km/h, 10 km takes about 2.5 in-game hours, before stops or complications.
+
 ## 1. Game at a Glance
 
 | Field | Current information |
@@ -430,4 +441,4 @@ This section is the active checklist for completing the GDD. Answers should be a
 | D-009 | Player choices affect relationships and future opportunities | Confirmed | Scope and persistence of consequences remain open |
 | D-010 | Karma is a deep system influenced by meaningful choices, not routine everyday actions | Confirmed | Evaluation rules (intention, outcome, nature of choice) remain open |
 | D-011 | Consequences are communicated through a context-sensitive combination of immediate, gradual, and hidden feedback | Confirmed | Which method applies depends on the choice and its consequences |
-| D-012 | The world is continuous outdoors, with independent interior spaces for selected locations | Confirmed | Exact streaming and transition implementation remains open |
+| D-012 | The world is continuous outdoors, with independent interior spaces for selected locations | Confirmed | Exact streaming and transition implementation remains open |\n| D-013 | The intended world is open and geographically continuous, with no arbitrary region locks as the default | Confirmed direction | Natural, physical, narrative, or capability-based obstacles and exact access rules remain open |\n| D-014 | World time is planned at 30 real-time minutes per in-game day; travel uses a hybrid experiential/fast approach | Confirmed direction | Travel physics, fast-travel rules, clock behavior, and encounter scheduling remain open |
