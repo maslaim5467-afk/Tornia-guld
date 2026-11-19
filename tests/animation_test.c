@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static const char sample[] =
@@ -14,7 +15,7 @@ static const char sample[] =
     "frame 8 16 8 8\n"
     "end\n";
 
-int main(void) {
+int main(int argc, char **argv) {
     AnimationSet set;
     AnimationPlayer player = {0};
     assert(animation_load_text(&set, sample, 32, 32) == 0);
@@ -36,6 +37,25 @@ int main(void) {
 
     assert(animation_load_text(&set, "clip bad 10 loop\nframe 30 0 8 8\nend\n", 32, 32) == -1);
     assert(set.clip_count == 0);
+
+    if (argc > 1) {
+        FILE *file = fopen(argv[1], "rb");
+        assert(file != NULL);
+        assert(fseek(file, 0, SEEK_END) == 0);
+        long size = ftell(file);
+        assert(size > 0 && size < 65536);
+        rewind(file);
+        char *config = (char *)malloc((size_t)size + 1u);
+        assert(config != NULL);
+        assert(fread(config, 1, (size_t)size, file) == (size_t)size);
+        fclose(file);
+        config[size] = '\0';
+        assert(animation_load_text(&set, config, 1536, 1024) == 0);
+        assert(set.clip_count == 10 && set.frame_count == 41);
+        assert(animation_find_clip(&set, "walk_left") >= 0);
+        assert(animation_find_clip(&set, "run_right") >= 0);
+        free(config);
+    }
     puts("animation tests passed");
     return 0;
 }
