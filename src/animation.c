@@ -149,3 +149,33 @@ void animation_frame_uvs(const AnimationFrame *frame,
     uv[4] = right; uv[5] = bottom;
     uv[6] = left;  uv[7] = bottom;
 }
+
+void animation_controller_init(AnimationController *controller) {
+    if (!controller) return;
+    memset(controller, 0, sizeof(*controller));
+}
+
+int animation_controller_update(AnimationController *controller,
+                                const AnimationSet *set, const char *clip,
+                                int flip_x, uint32_t delta_ms) {
+    if (!controller || !set || !clip) return -1;
+    if (animation_find_clip(set, clip) < 0) return -1;
+
+    if (!controller->initialized ||
+        strcmp(controller->active_clip, clip) != 0) {
+        if (animation_play(&controller->playback, set, clip) != 0) return -1;
+        strcpy(controller->active_clip, clip);
+        controller->initialized = 1;
+    }
+
+    controller->flip_x = (uint8_t)(flip_x != 0);
+    animation_update(&controller->playback, set, delta_ms);
+    return 0;
+}
+
+const AnimationFrame *animation_controller_current_frame(
+                                const AnimationController *controller,
+                                const AnimationSet *set) {
+    if (!controller || !controller->initialized) return NULL;
+    return animation_current_frame(&controller->playback, set);
+}
