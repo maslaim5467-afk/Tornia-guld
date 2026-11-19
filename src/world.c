@@ -101,3 +101,25 @@ float world_camera_world_y(const WorldCamera *camera, float screen_y) {
     if (!camera) return screen_y;
     return camera->y + screen_y / camera->zoom;
 }
+
+void world_camera_follow(WorldCamera *camera, float target_x, float target_y,
+                         float anchor_x, float anchor_y,
+                         float viewport_width, float viewport_height,
+                         float delta_seconds, float responsiveness) {
+    float target_camera_x, target_camera_y, blend;
+    if (!camera || viewport_width <= 0.0f || viewport_height <= 0.0f ||
+        delta_seconds <= 0.0f || responsiveness <= 0.0f)
+        return;
+
+    anchor_x = clampf(anchor_x, 0.0f, 1.0f);
+    anchor_y = clampf(anchor_y, 0.0f, 1.0f);
+    target_camera_x = target_x - (viewport_width * anchor_x) / camera->zoom;
+    target_camera_y = target_y - (viewport_height * anchor_y) / camera->zoom;
+
+    /* Exponential-like blend is stable across different frame rates. */
+    blend = (responsiveness * delta_seconds) /
+            (1.0f + responsiveness * delta_seconds);
+    camera->x += (target_camera_x - camera->x) * blend;
+    camera->y += (target_camera_y - camera->y) * blend;
+    world_camera_clamp(camera, viewport_width, viewport_height);
+}
