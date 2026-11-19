@@ -39,6 +39,8 @@
 
 - **Perspective:** 2D Top-Down (view from above).
 - **Camera behavior:** Hybrid. During ordinary exploration, the camera follows the player character. In selected stages or situations, it may use a different behavior to support the intended presentation and gameplay.
+- **Movement:** Free 360-degree movement in the 2D world is the confirmed direction; movement is not restricted to four or eight discrete directions.
+- **Movement and attack direction:** The player may be able to move in one direction while attacking in another. This is a confirmed design principle, but it must be governed by specific combat mechanics rather than being universally available without restrictions. Weapon-specific rules, timing, accuracy, stamina/cost, animation, and other conditions remain **TBD**.
 - The exact rules for when and how the camera changes behavior, including any fixed shots, framing, transitions, rotation, and zoom, remain **TBD** and must be defined in the relevant stage designs.
 
 ## 1. Game at a Glance
@@ -401,7 +403,8 @@ This section is the active checklist for completing the GDD. Answers should be a
 ### B. Camera, movement, and interaction
 - [x] What camera perspective will the game use? 2D Top-Down.
 - [x] How should the camera behave? Hybrid: follow the player during ordinary exploration, with different behavior allowed in selected stages or situations.
-- [ ] Is movement free in 2D, platform-based, grid-based, or something else?
+- [x] Is movement free in 2D, platform-based, grid-based, or something else? Free 360-degree movement in the 2D world.
+- [x] Can movement direction and attack direction differ? Yes, subject to specific combat mechanics; exact restrictions and weapon rules remain TBD.
 - [ ] How does the player interact with objects and characters?
 - [ ] Which controls are always visible, and which are contextual?
 
@@ -464,3 +467,4 @@ This section is the active checklist for completing the GDD. Answers should be a
 | D-015 | World simulation pauses completely when the game is closed | Confirmed | No offline travel progress or world events; resume from saved world state |
 | D-016 | The world follows consistent, fair internal laws and is not artificially balanced to the player's strength | Confirmed design philosophy | Exact creature ecology, danger cues, encounter logic, combat rules, and chance remain open |
 | D-017 | Use a 2D Top-Down camera perspective with hybrid camera behavior | Confirmed | Camera follows the player during ordinary exploration; selected stages or situations may use different camera behavior. Exact triggers and camera techniques remain TBD. |
+| D-018 | Use free 360-degree movement and allow movement direction to differ from attack direction under specific combat mechanics | Confirmed design direction | The player may move one way while attacking another, but this is not unrestricted or universal. Weapon-specific rules and exact constraints remain TBD. |
