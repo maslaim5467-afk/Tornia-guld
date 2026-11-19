@@ -84,13 +84,18 @@ void player_update(Player *player, uint32_t delta_ms,
 
 const char *player_animation_name(const Player *player) {
     static const char *walk[] = {
-        "walk_down", "walk_up", "walk_left", "walk_right"
+        "walk_down", "walk_up", "walk_left", "walk_left"
     };
     static const char *run[] = {
-        "run_down", "run_up", "run_left", "run_right"
+        "run_down", "run_up", "run_left", "run_left"
     };
     if (!player || player->motion == PLAYER_MOTION_IDLE) return "idle";
     if (player->facing > PLAYER_FACING_RIGHT) return "idle";
     return player->motion == PLAYER_MOTION_RUN
         ? run[player->facing] : walk[player->facing];
+}
+
+int player_animation_flip_x(const Player *player) {
+    return player && player->facing == PLAYER_FACING_RIGHT &&
+           player->motion != PLAYER_MOTION_IDLE;
 }
