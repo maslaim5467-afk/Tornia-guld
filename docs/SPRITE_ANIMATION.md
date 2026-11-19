@@ -8,7 +8,7 @@
 - Each rendered frame changes only the sampled UV rectangle. The source image is not split into separate PNG files and is not uploaded again during animation.
 - Frame timing is driven by elapsed monotonic time, not by assuming a fixed display refresh rate.
 - Pixel-art sampling uses nearest-neighbor filtering.
-- The first integration plays the player's looping `idle` clip in the world scene. Other clips are registered in the same metadata file for subsequent movement/input integration.
+- The renderer samples the current frame at the player's world-space position. The player movement controller selects idle, directional walk and directional run clips from the same metadata file.
 
 ## Metadata format
 
@@ -31,7 +31,7 @@ The loader validates every rectangle against the decoded source image dimensions
 ## Current limits
 
 - Metadata rectangles are authored explicitly; automatic computer-vision detection of arbitrary sprite sheets is not part of this prototype.
-- The first renderer integration displays the idle clip only. Movement input and state-to-clip selection remain separate follow-up work.
+- The player movement controller currently drives idle, walk and run clip selection. Action clips are registered but are not yet triggered by gameplay events.
 - The sprite texture is currently a dedicated Vulkan sampled image; a general asset/resource manager is still future work.
 
 ## Host tests
