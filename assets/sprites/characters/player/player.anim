@@ -4,72 +4,72 @@
 # Rectangles isolate the character pixels; no per-frame PNG files are needed.
 
 clip idle 180 loop
-frame 81 45 103 161
-frame 249 46 93 159
-frame 405 46 97 159
-frame 561 45 107 160
+frame 78 42 109 167
+frame 246 43 99 165
+frame 402 43 103 165
+frame 558 42 113 166
 end
 
 clip walk_down 120 loop
-frame 887 45 96 164
-frame 1035 47 85 163
-frame 1170 47 92 163
-frame 1313 45 97 164
+frame 884 42 102 170
+frame 1032 44 91 169
+frame 1167 44 98 169
+frame 1310 42 103 170
 end
 
 clip walk_up 120 loop
-frame 82 254 100 160
-frame 244 255 92 158
-frame 405 255 87 158
-frame 558 254 102 159
+frame 79 251 106 166
+frame 241 252 98 164
+frame 402 252 93 164
+frame 555 251 108 165
 end
 
 clip walk_left 120 loop
-frame 851 256 109 158
-frame 1009 256 102 155
-frame 1168 256 118 157
-frame 1324 256 125 157
+frame 848 253 115 164
+frame 1006 253 108 161
+frame 1165 253 124 163
+frame 1321 253 131 163
 end
 
 clip walk_right 120 loop
-frame 83 463 110 145
-frame 245 463 105 145
-frame 409 464 98 146
-frame 564 462 104 148
+frame 80 460 116 151
+frame 242 460 111 151
+frame 406 461 104 152
+frame 561 459 110 154
 end
 
 clip run_down 90 loop
-frame 872 461 103 153
-frame 1020 464 108 150
-frame 1174 464 90 150
-frame 1329 462 103 152
+frame 869 458 109 159
+frame 1017 461 114 156
+frame 1171 461 96 156
+frame 1326 459 109 158
 end
 
 clip run_up 90 loop
-frame 80 657 102 156
-frame 245 658 89 155
-frame 404 658 87 155
-frame 556 657 102 155
+frame 77 654 108 162
+frame 242 655 95 161
+frame 401 655 93 161
+frame 553 654 108 161
 end
 
 clip run_left 90 loop
-frame 863 658 107 145
-frame 1015 659 111 145
-frame 1163 660 120 148
-frame 1321 660 121 143
+frame 860 655 113 151
+frame 1012 656 117 151
+frame 1160 657 126 154
+frame 1318 657 127 149
 end
 
 clip run_right 90 loop
-frame 85 853 103 149
-frame 248 853 109 149
-frame 409 852 96 150
-frame 561 852 115 135
+frame 82 850 109 155
+frame 245 850 115 155
+frame 406 849 102 156
+frame 558 849 121 141
 end
 
 clip actions 140 once
-frame 801 859 127 138
-frame 950 861 130 134
-frame 1109 890 119 104
-frame 1252 852 97 141
-frame 1370 867 110 128
+frame 798 856 133 144
+frame 947 858 136 140
+frame 1106 887 125 110
+frame 1249 849 103 147
+frame 1367 864 116 134
 end
