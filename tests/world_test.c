@@ -41,6 +41,26 @@ int main(void) {
     assert(world_camera_world_x(&camera, 0.0f) == camera.x);
     assert(world_camera_world_y(&camera, 0.0f) == camera.y);
 
+
+    world_camera_reset(&camera);
+    camera.zoom = 1.0f;
+    world_camera_follow(&camera, 1200.0f, 900.0f, 0.5f, 0.55f,
+                        800.0f, 450.0f, 0.016f, 8.0f);
+    assert(camera.x > 0.0f && camera.y > 0.0f);
+    assert(camera.x < 800.0f && camera.y < 900.0f);
+    {
+        float old_x = camera.x;
+        world_camera_follow(&camera, 1600.0f, 900.0f, 0.5f, 0.55f,
+                            800.0f, 450.0f, 0.016f, 8.0f);
+        assert(camera.x > old_x);
+    }
+    camera.zoom = 1.0f;
+    camera.x = 0.0f;
+    camera.y = 0.0f;
+    world_camera_follow(&camera, 100.0f, 100.0f, 0.5f, 0.55f,
+                        800.0f, 450.0f, 1.0f, 8.0f);
+    assert(camera.x == 0.0f && camera.y == 0.0f);
+
     printf("world tests passed; overlays=%u\n", overlays);
     return 0;
 }
