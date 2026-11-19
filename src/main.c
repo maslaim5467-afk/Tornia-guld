@@ -100,45 +100,78 @@ static VkShaderModule shader(E*e,const char*path){AAsset*a=AAssetManager_open(e-
 #define ATLAS_CELL 256
 static int decode_asset_rgba(E*e,const char*path,uint8_t*out){
  AAsset*a=AAssetManager_open(e->app->activity->assetManager,path,AASSET_MODE_BUFFER);
- if(!a)return -1;
+ if(!a){ERR("Asset not found: %s",path);return -1;}
  off_t length=AAsset_getLength(a);
- if(length<=0||length>8*1024*1024){AAsset_close(a);return -1;}
+ if(length<=0||length>8*1024*1024){ERR("Invalid asset size %s: %lld",path,(long long)length);AAsset_close(a);return -1;}
  jbyte*bytes=malloc((size_t)length);
  if(!bytes){AAsset_close(a);return -1;}
  int got=AAsset_read(a,bytes,(size_t)length);AAsset_close(a);
- if(got!=(int)length){free(bytes);return -1;}
- JNIEnv*env=NULL;
+ if(got!=(int)length){ERR("Short asset read %s: %d/%lld",path,got,(long long)length);free(bytes);return -1;}
+
  JavaVM*vm=e->app->activity->vm;
- if(!vm||(*vm)->AttachCurrentThread(vm,&env,NULL)!=JNI_OK||!env){ERR("Could not attach render thread to Android JVM");return -1;}
- jclass factory=(*env)->FindClass(env,"android/graphics/BitmapFactory");
- if(!factory||(*env)->ExceptionCheck(env)){(*env)->ExceptionClear(env);(*vm)->DetachCurrentThread(vm);ERR("BitmapFactory class lookup failed");return -1;}
- jmethodID decode=(*env)->GetStaticMethodID(env,factory,"decodeByteArray","([BII)Landroid/graphics/Bitmap;");
- jbyteArray encoded=(*env)->NewByteArray(env,(jsize)length);
- (*env)->SetByteArrayRegion(env,encoded,0,(jsize)length,bytes);free(bytes);
- jobject bitmap=(*env)->CallStaticObjectMethod(env,factory,decode,encoded,0,(jint)length);
- (*env)->DeleteLocalRef(env,encoded);
- if((*env)->ExceptionCheck(env)){(*env)->ExceptionClear(env);(*vm)->DetachCurrentThread(vm);return -1;}
- if(!bitmap){(*vm)->DetachCurrentThread(vm);return -1;}
- jclass bitmap_cls=(*env)->FindClass(env,"android/graphics/Bitmap");
- jmethodID scale=(*env)->GetStaticMethodID(env,bitmap_cls,"createScaledBitmap","(Landroid/graphics/Bitmap;IIZ)Landroid/graphics/Bitmap;");
- jobject scaled=(*env)->CallStaticObjectMethod(env,bitmap_cls,scale,bitmap,(jint)ATLAS_CELL,(jint)ATLAS_CELL,JNI_TRUE);
- jmethodID get_pixels=(*env)->GetMethodID(env,bitmap_cls,"getPixels","([IIIIIII)V");
- jintArray pixels=(*env)->NewIntArray(env,ATLAS_CELL*ATLAS_CELL);
+ JNIEnv*env=NULL;
+ int attached=0,result=-1;
+ jclass factory=NULL,bitmap_cls=NULL;
+ jmethodID decode=NULL,scale=NULL,get_pixels=NULL;
+ jbyteArray encoded=NULL;
+ jobject bitmap=NULL,scaled=NULL;
+ jintArray pixels=NULL;
+ jint*p=NULL;
+ if(!vm){ERR("Android JavaVM is unavailable for %s",path);goto done;}
+ jint state=(*vm)->GetEnv(vm,(void**)&env,JNI_VERSION_1_6);
+ if(state==JNI_EDETACHED){
+  if((*vm)->AttachCurrentThread(vm,&env,NULL)!=JNI_OK||!env){ERR("Could not attach asset thread to Android JVM");goto done;}
+  attached=1;
+ }else if(state!=JNI_OK||!env){
+  ERR("Could not access Android JNI environment for %s",path);goto done;
+ }
+
+ factory=(*env)->FindClass(env,"android/graphics/BitmapFactory");
+ if(!factory||(*env)->ExceptionCheck(env)){ERR("BitmapFactory lookup failed for %s",path);goto done;}
+ decode=(*env)->GetStaticMethodID(env,factory,"decodeByteArray","([BII)Landroid/graphics/Bitmap;");
+ if(!decode||(*env)->ExceptionCheck(env)){ERR("BitmapFactory.decodeByteArray lookup failed for %s",path);goto done;}
+ encoded=(*env)->NewByteArray(env,(jsize)length);
+ if(!encoded||(*env)->ExceptionCheck(env)){ERR("Could not allocate Java byte array for %s",path);goto done;}
+ (*env)->SetByteArrayRegion(env,encoded,0,(jsize)length,bytes);
+ free(bytes);bytes=NULL;
+ if((*env)->ExceptionCheck(env)){ERR("Could not copy encoded PNG bytes for %s",path);goto done;}
+ bitmap=(*env)->CallStaticObjectMethod(env,factory,decode,encoded,0,(jint)length);
+ if((*env)->ExceptionCheck(env)||!bitmap){ERR("BitmapFactory could not decode %s",path);goto done;}
+
+ bitmap_cls=(*env)->FindClass(env,"android/graphics/Bitmap");
+ if(!bitmap_cls||(*env)->ExceptionCheck(env)){ERR("Bitmap class lookup failed for %s",path);goto done;}
+ scale=(*env)->GetStaticMethodID(env,bitmap_cls,"createScaledBitmap","(Landroid/graphics/Bitmap;IIZ)Landroid/graphics/Bitmap;");
+ get_pixels=(*env)->GetMethodID(env,bitmap_cls,"getPixels","([IIIIIII)V");
+ if(!scale||!get_pixels||(*env)->ExceptionCheck(env)){ERR("Bitmap pixel methods unavailable for %s",path);goto done;}
+ scaled=(*env)->CallStaticObjectMethod(env,bitmap_cls,scale,bitmap,(jint)ATLAS_CELL,(jint)ATLAS_CELL,JNI_TRUE);
+ if((*env)->ExceptionCheck(env)||!scaled){ERR("Could not scale terrain asset %s",path);goto done;}
+ pixels=(*env)->NewIntArray(env,ATLAS_CELL*ATLAS_CELL);
+ if(!pixels||(*env)->ExceptionCheck(env)){ERR("Could not allocate decoded pixel array for %s",path);goto done;}
  (*env)->CallVoidMethod(env,scaled,get_pixels,pixels,0,ATLAS_CELL,0,0,ATLAS_CELL,ATLAS_CELL);
- if((*env)->ExceptionCheck(env)){(*env)->ExceptionClear(env);(*vm)->DetachCurrentThread(vm);return -1;}
- jint*p=(*env)->GetIntArrayElements(env,pixels,0);
- if(!p){(*vm)->DetachCurrentThread(vm);return -1;}
+ if((*env)->ExceptionCheck(env)){ERR("Bitmap.getPixels failed for %s",path);goto done;}
+ p=(*env)->GetIntArrayElements(env,pixels,0);
+ if(!p||(*env)->ExceptionCheck(env)){ERR("Could not access decoded pixels for %s",path);goto done;}
  for(int i=0;i<ATLAS_CELL*ATLAS_CELL;i++){
   uint32_t v=(uint32_t)p[i];
   out[i*4+0]=(uint8_t)(v>>16);out[i*4+1]=(uint8_t)(v>>8);
   out[i*4+2]=(uint8_t)v;out[i*4+3]=(uint8_t)(v>>24);
  }
- (*env)->ReleaseIntArrayElements(env,pixels,p,JNI_ABORT);
- (*env)->DeleteLocalRef(env,pixels);(*env)->DeleteLocalRef(env,scaled);
- (*env)->DeleteLocalRef(env,bitmap);(*env)->DeleteLocalRef(env,bitmap_cls);
- (*env)->DeleteLocalRef(env,factory);
- (*vm)->DetachCurrentThread(vm);
- return 0;
+ result=0;
+
+done:
+ if(p&&pixels)(*env)->ReleaseIntArrayElements(env,pixels,p,JNI_ABORT);
+ if(env){
+  if(pixels)(*env)->DeleteLocalRef(env,pixels);
+  if(scaled&&scaled!=bitmap)(*env)->DeleteLocalRef(env,scaled);
+  if(bitmap)(*env)->DeleteLocalRef(env,bitmap);
+  if(bitmap_cls)(*env)->DeleteLocalRef(env,bitmap_cls);
+  if(factory)(*env)->DeleteLocalRef(env,factory);
+  if(encoded)(*env)->DeleteLocalRef(env,encoded);
+  if((*env)->ExceptionCheck(env))(*env)->ExceptionClear(env);
+ }
+ if(bytes)free(bytes);
+ if(attached)(*vm)->DetachCurrentThread(vm);
+ return result;
 }
 static int create_texture_atlas(E*e){
  static const char*paths[14]={
@@ -150,15 +183,30 @@ static int create_texture_atlas(E*e){
   "tiles/grass/file_0000000063808210b3fc9787a65c0cb7.png"
  };
  size_t atlas_bytes=(size_t)ATLAS_SIDE*ATLAS_SIDE*4u;
- uint8_t*rgba=calloc(1,atlas_bytes);uint8_t*cell=malloc((size_t)ATLAS_CELL*ATLAS_CELL*4u);
+ size_t cell_bytes=(size_t)ATLAS_CELL*ATLAS_CELL*4u;
+ uint8_t*rgba=calloc(1,atlas_bytes);uint8_t*cell=malloc(cell_bytes);
+ uint32_t failures=0;
  if(!rgba||!cell){free(rgba);free(cell);return -1;}
+ /* A deterministic grass fallback keeps the menu and world renderable even if a PNG fails. */
+ for(uint32_t y=0;y<ATLAS_CELL;y++)for(uint32_t x=0;x<ATLAS_CELL;x++){
+  size_t p=((size_t)y*ATLAS_SIDE+x)*4u;
+  uint8_t shade=(uint8_t)(((x/8u+y/8u)&1u)?8u:0u);
+  rgba[p+0]=(uint8_t)(72u+shade);rgba[p+1]=(uint8_t)(119u+shade);
+  rgba[p+2]=(uint8_t)(48u+shade);rgba[p+3]=255u;
+ }
  for(uint32_t i=0;i<14;i++){
-  if(decode_asset_rgba(e,paths[i],cell)){ERR("Could not decode terrain asset %s",paths[i]);free(rgba);free(cell);return -1;}
+  memset(cell,0,cell_bytes);
+  if(decode_asset_rgba(e,paths[i],cell)){
+   failures++;
+   ERR("Using fallback for terrain asset %s",paths[i]);
+   continue;
+  }
   uint32_t ox=(i%4u)*ATLAS_CELL,oy=(i/4u)*ATLAS_CELL;
   for(uint32_t y=0;y<ATLAS_CELL;y++)
-   memcpy(rgba+(((size_t)(oy+y)*ATLAS_SIDE+ox)*4u),cell+(size_t)y*ATLAS_CELL*4u,(size_t)ATLAS_CELL*4u);
+   memcpy(rgba+(((size_t)(oy+y)*ATLAS_SIDE+ox)*4u),cell+(size_t)y*ATLAS_CELL*4u,cell_bytes/ATLAS_CELL);
  }
  free(cell);
+ if(failures)ERR("Terrain atlas loaded with %u fallback cell(s)",failures);
  VkBuffer staging=0;VkDeviceMemory staging_mem=0;
  VkBufferCreateInfo bci={.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,.size=atlas_bytes,.usage=VK_BUFFER_USAGE_TRANSFER_SRC_BIT,.sharingMode=VK_SHARING_MODE_EXCLUSIVE};
  if(vkCreateBuffer(e->dev,&bci,0,&staging)){free(rgba);return -1;}
@@ -203,7 +251,7 @@ static int create_texture_atlas(E*e){
  VkDescriptorImageInfo image_info={.sampler=e->atlas_sampler,.imageView=e->atlas_view,.imageLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
  VkWriteDescriptorSet wr={.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,.dstSet=e->descriptor_set,.dstBinding=0,.descriptorCount=1,.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,.pImageInfo=&image_info};
  vkUpdateDescriptorSets(e->dev,1,&wr,0,0);
- LOG("Loaded grass base and 13 transparent overlays into Vulkan atlas");
+ LOG("Vulkan terrain atlas uploaded; missing source images=%u",failures);
  return 0;
 }
 static int setup(E*e){
