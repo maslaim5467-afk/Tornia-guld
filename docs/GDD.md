@@ -188,7 +188,10 @@ The following order reflects the current story documentation:
 - Rise is distinct from magic and is strongly associated with physical capabilities and combat-related development, including stamina, strength, speed, and physical skills.
 - A character may develop both magic and Rise; the systems are not mutually exclusive.
 - Rise is relevant as a path for characters such as warriors and crusaders, and for characters whose Mana is weak.
-- The detailed nature, activation, progression, mechanics, costs, limits, and relationship between Rise and character attributes remain **TBD** pending further explanation from the creator.
+- Rise is organized around distinct physical/combat skills, rather than being only a set of passive attribute bonuses. Each skill can have its own levels and unlocks.
+- Example supplied by the creator: **Swordsmanship Level 1** enables basic sword attacks and defense; **Level 2** can improve attack power and speed; **Level 3** can unlock a named technique such as **Moon Sword** (شمشیر ماه). This is an illustrative progression example, not yet a complete skill specification.
+- Skill levels may therefore provide both improvements to existing actions and access to new techniques directly associated with that skill.
+- The complete skill list, level requirements, progression method, unlock conditions, numerical effects, and the relationship between Rise skills and general attributes remain **TBD** pending further explanation from the creator.
 
 ### 4.3 Controls
 - Initial prototype input: touchscreen.
@@ -451,7 +454,7 @@ This section is the active checklist for completing the GDD. Answers should be a
 - [x] What resources does magic consume? All magic consumes Mana; some spells may additionally require Stamina and/or Intelligence. Exact costs and thresholds remain TBD.
 - [x] How does the environment affect elemental magic? The presence of a relevant element can broaden that element's magical power and unlock certain conditions or applications; exact rules remain TBD.
 - [x] Can players combine multiple forms of magic? Yes, including more than two forms, but only within combination rules and outcomes defined by the developers; exact catalogue and mechanics remain TBD.
-- [x] Is there a progression system separate from magic for physical/combat development? Yes, the creator refers to it as Rise (provisional name). It is associated with stamina, strength, speed, and physical skills; characters may develop both Rise and magic. Detailed system remains TBD..
+- [x] Is there a progression system separate from magic for physical/combat development? Yes, the creator refers to it as Rise (provisional English spelling/name). It consists of physical/combat skills with their own levels and skill-linked unlocks. Example: Swordsmanship Level 1 enables basic attacks and defense; Level 2 can improve attack power and speed; Level 3 can unlock a specific technique such as Moon Sword. Characters may develop both Rise and magic. The complete system remains TBD.
 - [ ] Which character attributes and needs exist?
 - [ ] What do Health, Awareness, and Energy each represent?
 - [ ] Are there skills, experience, levels, or other progression systems?
