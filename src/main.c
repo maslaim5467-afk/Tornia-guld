@@ -107,24 +107,27 @@ static int decode_asset_rgba(E*e,const char*path,uint8_t*out){
  if(!bytes){AAsset_close(a);return -1;}
  int got=AAsset_read(a,bytes,(size_t)length);AAsset_close(a);
  if(got!=(int)length){free(bytes);return -1;}
- JNIEnv*env=e->app->activity->env;
+ JNIEnv*env=NULL;
+ JavaVM*vm=e->app->activity->vm;
+ if(!vm||(*vm)->AttachCurrentThread(vm,&env,NULL)!=JNI_OK||!env){ERR("Could not attach render thread to Android JVM");return -1;}
  jclass factory=(*env)->FindClass(env,"android/graphics/BitmapFactory");
+ if(!factory||(*env)->ExceptionCheck(env)){(*env)->ExceptionClear(env);(*vm)->DetachCurrentThread(vm);ERR("BitmapFactory class lookup failed");return -1;}
  jmethodID decode=(*env)->GetStaticMethodID(env,factory,"decodeByteArray","([BII)Landroid/graphics/Bitmap;");
  jbyteArray encoded=(*env)->NewByteArray(env,(jsize)length);
  (*env)->SetByteArrayRegion(env,encoded,0,(jsize)length,bytes);free(bytes);
  jobject bitmap=(*env)->CallStaticObjectMethod(env,factory,decode,encoded,0,(jint)length);
  (*env)->DeleteLocalRef(env,encoded);
- if((*env)->ExceptionCheck(env)){(*env)->ExceptionClear(env);return -1;}
- if(!bitmap)return -1;
+ if((*env)->ExceptionCheck(env)){(*env)->ExceptionClear(env);(*vm)->DetachCurrentThread(vm);return -1;}
+ if(!bitmap){(*vm)->DetachCurrentThread(vm);return -1;}
  jclass bitmap_cls=(*env)->FindClass(env,"android/graphics/Bitmap");
  jmethodID scale=(*env)->GetStaticMethodID(env,bitmap_cls,"createScaledBitmap","(Landroid/graphics/Bitmap;IIZ)Landroid/graphics/Bitmap;");
  jobject scaled=(*env)->CallStaticObjectMethod(env,bitmap_cls,scale,bitmap,(jint)ATLAS_CELL,(jint)ATLAS_CELL,JNI_TRUE);
  jmethodID get_pixels=(*env)->GetMethodID(env,bitmap_cls,"getPixels","([IIIIIII)V");
  jintArray pixels=(*env)->NewIntArray(env,ATLAS_CELL*ATLAS_CELL);
  (*env)->CallVoidMethod(env,scaled,get_pixels,pixels,0,ATLAS_CELL,0,0,ATLAS_CELL,ATLAS_CELL);
- if((*env)->ExceptionCheck(env)){(*env)->ExceptionClear(env);return -1;}
+ if((*env)->ExceptionCheck(env)){(*env)->ExceptionClear(env);(*vm)->DetachCurrentThread(vm);return -1;}
  jint*p=(*env)->GetIntArrayElements(env,pixels,0);
- if(!p)return -1;
+ if(!p){(*vm)->DetachCurrentThread(vm);return -1;}
  for(int i=0;i<ATLAS_CELL*ATLAS_CELL;i++){
   uint32_t v=(uint32_t)p[i];
   out[i*4+0]=(uint8_t)(v>>16);out[i*4+1]=(uint8_t)(v>>8);
@@ -134,6 +137,7 @@ static int decode_asset_rgba(E*e,const char*path,uint8_t*out){
  (*env)->DeleteLocalRef(env,pixels);(*env)->DeleteLocalRef(env,scaled);
  (*env)->DeleteLocalRef(env,bitmap);(*env)->DeleteLocalRef(env,bitmap_cls);
  (*env)->DeleteLocalRef(env,factory);
+ (*vm)->DetachCurrentThread(vm);
  return 0;
 }
 static int create_texture_atlas(E*e){
