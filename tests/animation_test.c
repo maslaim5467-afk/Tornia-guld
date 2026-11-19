@@ -23,6 +23,32 @@ int main(int argc, char **argv) {
     assert(animation_find_clip(&set, "idle") == 0);
     assert(animation_find_clip(&set, "missing") == -1);
 
+    {
+        AnimationController first, second;
+        animation_controller_init(&first);
+        animation_controller_init(&second);
+
+        assert(animation_controller_current_frame(&first, &set) == NULL);
+        assert(animation_controller_update(&first, &set, "idle", 0, 50) == 0);
+        assert(first.playback.frame_index == 0);
+        assert(first.playback.elapsed_ms == 50);
+        assert(animation_controller_update(&first, &set, "idle", 1, 50) == 0);
+        assert(first.playback.frame_index == 1);
+        assert(first.playback.elapsed_ms == 0);
+        assert(first.flip_x == 1);
+
+        assert(animation_controller_update(&second, &set, "hit", 0, 50) == 0);
+        assert(second.playback.frame_index == 1 && second.playback.finished);
+        assert(strcmp(first.active_clip, "idle") == 0);
+        assert(strcmp(second.active_clip, "hit") == 0);
+        assert(first.playback.frame_index == 1);
+
+        assert(animation_controller_update(&first, &set, "missing", 0, 10) == -1);
+        assert(strcmp(first.active_clip, "idle") == 0);
+        assert(animation_controller_update(&first, &set, "hit", 0, 0) == 0);
+        assert(first.playback.frame_index == 0 && !first.playback.finished);
+    }
+
     assert(animation_play(&player, &set, "idle") == 0);
     animation_update(&player, &set, 100);
     assert(player.frame_index == 1);
