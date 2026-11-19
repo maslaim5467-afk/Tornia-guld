@@ -31,7 +31,7 @@ The loader validates every rectangle against the decoded source image dimensions
 ## Current limits
 
 - Metadata rectangles are authored explicitly; automatic computer-vision detection of arbitrary sprite sheets is not part of this prototype.
-- The player movement controller currently drives idle, walk and run clip selection. Action clips are registered but are not yet triggered by gameplay events.
+- The player movement controller currently drives idle, walk and run clip selection. Right-facing walk/run are rendered by mirroring left-facing frames; explicit right-facing rectangles remain available in the sheet metadata but are not used by this controller. Action clips are registered but are not yet triggered by gameplay events.
 - The sprite texture is currently a dedicated Vulkan sampled image; a general asset/resource manager is still future work.
 
 ## Host tests
