@@ -111,7 +111,7 @@ static void push_tex(E*e,float x,float y,float w,float h,uint32_t cell){
 }
 
 static uint32_t memtype(E*e,uint32_t mask,VkMemoryPropertyFlags flags);
-static void push_sprite(E*e,float x,float y,float w,float h,const AnimationFrame*f){
+static void push_sprite(E*e,float x,float y,float w,float h,const AnimationFrame*f,int flip_x){
  if(!f||!e->sprite_width||!e->sprite_height)return;
  float l=x*2/e->w-1,rr=(x+w)*2/e->w-1,t=y*2/e->h-1,bb=(y+h)*2/e->h-1;
  float u0=(float)f->x/e->sprite_width,v0=(float)f->y/e->sprite_height;
@@ -228,7 +228,7 @@ static void draw_world(E*e){
    float screen_y=(e->player.y-e->camera.y)*e->camera.zoom;
    float height=WORLD_TILE_SIZE*.78f*e->camera.zoom;
    float width=height*(float)f->width/(float)f->height;
-   push_sprite(e,screen_x-width*.5f,screen_y-height,width,height,f);
+   push_sprite(e,screen_x-width*.5f,screen_y-height,width,height,f,player_animation_flip_x(&e->player));
   }
  }
  push(e,0,0,e->w,42,.025f,.065f,.035f);
