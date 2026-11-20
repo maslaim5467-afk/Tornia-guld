@@ -3,7 +3,10 @@
 ## Status
 
 - **Architecture proposal:** initial baseline for the progressive bounded-sea experiment.
-- **Implementation status:** not implemented by this document.
+- **Implemented:** portable `TgCamera3D` camera state and view/projection update API in `src/camera3d.h/.c`, with host-side tests in `tests/camera3d_test.c`.
+- **CI:** the dedicated 3D math and camera workflow passed on commit `79cca117c39ab29f9d00019df29bfd3b74d309b9`.
+- **Pending:** Android APK build workflow is still running; no on-device camera or rendering validation has been performed.
+- **Not implemented yet:** Vulkan 3D pipeline, depth attachment, mesh upload, `renderer3d`, and sea test scene.
 - **Target branch:** `feature/3d-renderer-foundation`.
 - **Compatibility rule:** the existing 2D path remains operational and is not replaced.
 
@@ -98,8 +101,8 @@ The dimensions and camera are deterministic starting values for the prototype an
 
 ## Implementation sequence
 
-1. **Architecture and baseline review:** document module boundaries, frame contract, and the smallest sea-scene contract. No 2D behavior changes.
-2. **Camera and geometry foundations:** add portable camera/mesh data and host-side tests; no Vulkan rendering claim.
+1. **Architecture and baseline review:** completed as documentation; module boundaries, frame contract, and the smallest sea-scene contract are recorded. No 2D behavior changes were made.
+2. **Camera foundation:** implemented `TgCamera3D` with validated initialization, pose updates, aspect-ratio updates, view/projection matrices, and projection * view composition. Dedicated strict-warning host tests passed in CI. Mesh foundation remains pending; no Vulkan rendering claim.
 3. **Backend integration design:** inspect the current monolithic Vulkan setup, select depth attachment/render-pass strategy, and define resource ownership.
 4. **Minimal 3D pass:** implement a separate 3D pipeline and render the flat finite plane.
 5. **Android validation:** build and run on the target device; capture evidence and record frame time, FPS, and memory.
@@ -121,7 +124,7 @@ The dimensions and camera are deterministic starting values for the prototype an
 - Vulkan setup, swapchain, render pass, pipeline, command recording, and presentation are currently concentrated in `src/main.c`.
 - The current render pass shown in the application has a color attachment only; a 3D depth attachment has not yet been established.
 - The existing vertex/pipeline setup is tailored to the current 2D drawing path.
-- The existing math module supplies vector/matrix primitives, but there is no 3D camera, mesh upload path, depth pipeline, or 3D scene renderer yet.
+- The existing math module supplies vector/matrix primitives, and a portable 3D camera module now exists. There is still no mesh upload path, depth pipeline, or 3D scene renderer.
 - The build script compiles `src/*.c` and Vulkan shaders with `glslc`; new source files are included by the wildcard, while shader compilation steps must be added explicitly.
 
 ## Change control
