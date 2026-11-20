@@ -1,4 +1,4 @@
-name: 3D math and camera tests
+name: 3D math, camera, and mesh tests
 
 on:
   push:
@@ -21,3 +21,7 @@ jobs:
         run: |
           cc -std=c11 -Wall -Wextra -Werror -pedantic src/math3d.c src/camera3d.c tests/camera3d_test.c -lm -o camera3d_test
           ./camera3d_test
+      - name: Compile and run mesh tests
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -pedantic src/math3d.c src/mesh3d.c tests/mesh3d_test.c -lm -o mesh3d_test
+          ./mesh3d_test
