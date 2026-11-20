@@ -3,12 +3,12 @@
 ## Status
 
 - **Design status:** defined against the current Android/Vulkan implementation.
+- **Implemented:** opaque Vulkan GPU mesh resource in `src/gpu_mesh_vk.h/.c`; combined vertex/index buffer allocation; device-local preference; staging upload with non-coherent flush handling; direct host-visible fallback; transfer/host-to-vertex-input barriers; upload fence wait; partial-failure cleanup; borrowed draw-metadata accessors.
 - **Target branch:** `feature/3d-renderer-foundation`.
-- **Current base:** `f8dd2371243aa00dd5cce83a3e13288ba2ab6fdf`.
-- **Implemented elsewhere:** CPU-side `TgMesh3D`, validation, XZ plane writer, and `TgCamera3D`.
-- **Not implemented by this document:** Vulkan mesh buffers, upload code, a 3D pipeline, depth attachment, or a visible 3D scene.
+- **CPU source:** `TgMesh3D` remains the canonical, validated, borrowed CPU mesh.
+- **Not implemented:** application/renderer integration, 3D graphics pipeline, depth attachment, or a visible 3D scene.
 
-This is an implementation contract, not evidence that a GPU upload or 3D draw has already run.
+The upload module is implemented as reusable backend code and included by the Android wildcard build. No on-device GPU upload or rendering result is claimed until the app calls it and the target device is tested.
 
 ## 1. Findings from the current Vulkan path
 
@@ -138,35 +138,36 @@ Keep the backend API independent of this choice. A suballocation arena can be co
 
 ## 7. Proposed backend-facing API boundary
 
-The exact names may change during implementation, but responsibilities should remain equivalent to:
+The implemented API is in `src/gpu_mesh_vk.h`:
 
 ```c
-/* Opaque logical resource; implementation owns VkBuffer and VkDeviceMemory. */
-typedef struct TgGpuMesh TgGpuMesh;
+typedef struct TgGpuMeshVk TgGpuMeshVk;
 
-int tg_vk_backend_upload_mesh(
-    TgVkBackend *backend,
+int tg_gpu_mesh_vk_upload(
+    VkPhysicalDevice physical_device,
+    VkDevice device,
+    VkQueue graphics_queue,
+    uint32_t queue_family_index,
     const TgMesh3D *source,
-    TgGpuMesh **out_mesh);
+    TgGpuMeshVk **out_mesh,
+    VkResult *out_vk_result);
 
-void tg_vk_backend_destroy_mesh(
-    TgVkBackend *backend,
-    TgGpuMesh *mesh);
-
-/* Any returned VkBuffer/command buffer is borrowed for active frame recording. */
+void tg_gpu_mesh_vk_destroy(VkDevice device, TgGpuMeshVk *mesh);
 ```
 
-The scene supplies a validated `TgMesh3D`. The backend performs allocation, upload, synchronization, and destruction. The 3D renderer uses the resulting logical mesh to record indexed draws. The scene never sees `VkDeviceMemory` and never performs Vulkan allocation.
+The resource is opaque: `VkBuffer` and `VkDeviceMemory` ownership stays inside the module. Accessors expose a borrowed buffer handle, vertex/index offsets, index count, and selected memory path for renderer use. The upload creates a short-lived transient command pool and fence, submits to the supplied graphics queue, and waits for completion. Callers must externally synchronize that queue and must not destroy the mesh while an in-flight frame references it.
+
+The scene supplies a validated `TgMesh3D`. The module performs allocation, upload, synchronization, and destruction. The 3D renderer records indexed draws using borrowed metadata. The scene never sees `VkDeviceMemory` and never performs Vulkan allocation.
 
 ## 8. Implementation and verification sequence
 
-1. Add a small platform-independent buffer-layout calculator with overflow and alignment tests. It must be testable by the existing host C test workflow.
-2. Extract only the minimum Vulkan backend/resource functions needed for buffer creation, memory selection, staging upload, and destruction. Avoid a broad rewrite of `main.c`.
-3. Add one combined static GPU mesh upload for the 20 x 20 XZ plane.
-4. Add strict-warning tests for the layout calculator and run the existing math/camera/mesh suite.
-5. Build the Android APK for `arm64-v8a`.
-6. Only then integrate the mesh into a separate 3D graphics pipeline and depth-capable render target.
-7. Run on the target Android device and capture a screenshot/video plus frame-time, FPS, memory, device, GPU/driver, and resolution details.
+1. **Complete:** platform-independent combined-buffer layout calculator with strict-warning overflow/alignment tests in the 3D CI workflow.
+2. **Implemented, pending integration:** Vulkan resource module for destination/staging allocation, memory selection, copy/direct-write path, barriers, fence synchronization, and deterministic destruction. The module is deliberately separate from the monolithic `main.c`.
+3. **Next:** create the 20 x 20 XZ sea mesh in a scene owner and call the upload module after Vulkan device initialization; release the GPU mesh before device destruction.
+4. Add a small device diagnostic that records the selected memory path and upload result without changing the 2D rendering path.
+5. Build the Android APK for `arm64-v8a`, then execute on the target Android device and verify that the upload path succeeds.
+6. Only after upload validation, integrate the mesh into a separate 3D graphics pipeline and depth-capable render target.
+7. Capture screenshot/video and frame-time, FPS, memory, device, GPU/driver, and resolution details.
 
 ## 9. Explicitly out of scope for this step
 
