@@ -2,12 +2,11 @@
 
 ## Purpose
 
-This change establishes the portable math, camera, CPU mesh, GPU mesh upload,
-and bounded sea-scene ownership foundations for a future Vulkan 3D renderer.
-The application now creates and uploads the 20 x 20 sea test mesh after Vulkan
-device/queue initialization. It does not yet draw that mesh: a 3D graphics
-pipeline, depth attachment, material system, and visible 3D scene remain
-unimplemented. Runtime success on a physical Android GPU is still pending.
+This change establishes the portable math, camera, CPU mesh, GPU upload,
+and first visible 3D draw path. The application uploads a 20 x 20 XZ sea plane,
+creates a supported depth target and a separate blue sea pipeline, and draws it
+on the BUILDING test screen before its 2D text overlay. The new path compiles
+into the Android APK; physical-device visual validation is still pending.
 
 ## Current architecture boundary
 
@@ -44,10 +43,11 @@ unimplemented. Runtime success on a physical Android GPU is still pending.
    destroying the device.
 4. Run the APK on a physical Android device and verify the upload log/result and
    selected memory path. A successful APK build alone is not runtime proof.
-5. Add a depth attachment and a separate 3D graphics pipeline, then draw the
-   sea mesh from a 3D camera.
-6. Define the frame composition contract so 2D overlays and 3D content can
-   coexist without either renderer owning the other's state.
+5. **Implemented:** add a depth attachment, a separate 3D graphics pipeline,
+   and draw the sea mesh from a 3D camera. The BUILDING screen records the 3D
+   pass before its existing 2D labels.
+6. Run the updated APK on the Android device and verify visible output, logs,
+   and that the main menu and 2D world remain unaffected.
 
 ## Validation
 
