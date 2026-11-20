@@ -60,11 +60,11 @@ Owns 3D-specific camera state, mesh data, 3D pipelines, depth state, and 3D draw
 - `src/camera3d.h/.c`: camera parameters and view/projection calculation, using `math3d`.
 - `src/mesh3d.h/.c`: implemented CPU-side position-only vertex/index descriptions, triangle and index validation, axis-aligned bounds, and a centered +Y-facing XZ plane writer. Arrays are borrowed.
 - `src/gpu_mesh_layout.h/.c`: implemented platform-independent combined vertex/index buffer layout calculation with overflow checks and host tests.
-- `src/gpu_mesh_vk.h/.c`: implemented opaque Vulkan GPU mesh allocation/upload/destruction. It owns the destination buffer and memory; staging resources, transient command pool, and upload fence are temporary. The current application does not call this module yet.
+- `src/gpu_mesh_vk.h/.c`: implemented opaque Vulkan GPU mesh allocation/upload/destruction. It owns the destination buffer and memory; staging resources, transient command pool, and upload fence are temporary. `TgSeaTestScene` invokes this module during Vulkan startup.
 - `src/renderer3d.h/.c`: proposed 3D renderer lifecycle and recording of 3D draw commands.
 - `src/sea_test_scene.h/.c`: implemented owner for the finite 20 x 20 test plane, borrowed CPU mesh arrays, and opaque uploaded GPU mesh. It creates/destroys the GPU resource at the device lifecycle boundary; it does not own Vulkan device/queue objects or issue frame draws. This is experiment content, not a general engine subsystem.
 
-These are proposed files, not existing implementation.
+The camera, CPU mesh, GPU layout, GPU upload, and sea test scene files listed above are implemented. `src/renderer3d.h/.c` remains a proposed module.
 
 ## Frame composition contract
 
