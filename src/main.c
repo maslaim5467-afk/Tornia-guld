@@ -457,7 +457,7 @@ static void frame(E*e){
   if(e->last_frame_ns){uint64_t delta=(ns-e->last_frame_ns)/1000000ull;if(delta>100u)delta=100u;delta_ms=(uint32_t)delta;}
   e->last_frame_ns=ns;
  }
- if(e->scene){
+ if(e->scene==1){
   player_update(&e->player,delta_ms,(float)WORLD_WIDTH*WORLD_TILE_SIZE,(float)WORLD_HEIGHT*WORLD_TILE_SIZE);
   if(e->sprite_ready){
    const char*clip=player_animation_name(&e->player);
