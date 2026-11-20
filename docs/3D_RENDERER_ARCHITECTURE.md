@@ -77,7 +77,7 @@ The core coordinates one frame in this order:
 4. Record the 2D world/UI pass with explicit overlay ordering.
 5. End rendering, submit once, and present once through the backend.
 
-The shared render pass has one color attachment and one depth attachment. `main.c` chooses the first supported format from D32, D24S8, and D16. The current frame coordinator waits on one frame fence before the next frame, so the depth target is a single image shared across the swapchain framebuffers; this must be revisited before allowing multiple frames in flight. The 3D pipeline enables depth test/write. The existing 2D pipeline has depth testing disabled and draws after the sea pass as an overlay. Renderers do not own swapchain acquisition or presentation.
+The shared render pass has one color attachment and one depth attachment. `main.c` chooses the first supported format from D32, D32S8, D24S8, and D16. Its external dependency covers color output and early/late fragment tests. The current frame coordinator waits on one frame fence before the next frame, so the depth target is a single image shared across the swapchain framebuffers; this must be revisited before allowing multiple frames in flight. The 3D pipeline enables depth test/write. The existing 2D pipeline has depth testing disabled and draws after the sea pass as an overlay. Renderers do not own swapchain acquisition or presentation.
 
 ## Initial sea scene contract — Stage 1
 
