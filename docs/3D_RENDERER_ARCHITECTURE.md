@@ -7,8 +7,9 @@
 - **CI:** the layout/math/camera/mesh suite passed on commit `bdd38f321d44f1e5601aade6225ee8c248ddd24e`; the Android `arm64-v8a` APK build, including compilation of the Vulkan upload module, also passed on that source commit (run `44790490617`).
 - **Backend contract:** ownership, staging/direct-memory paths, barriers, fence synchronization, and lifecycle rules are documented in [`3D_GPU_RESOURCE_DESIGN.md`](3D_GPU_RESOURCE_DESIGN.md).
 - **Integration:** `TgSeaTestScene` now owns a 20 x 20 XZ CPU plane and opaque GPU mesh. `main.c` invokes the upload during Vulkan startup and releases the GPU mesh after device idle, before device destruction.
-- **Runtime validation:** CI compiles the integrated path, but execution on a physical Android GPU has not yet been observed. No 3D draw or camera validation has been performed.
-- **Not implemented yet:** Vulkan 3D graphics pipeline, depth attachment, and visible sea draw.
+- **Implemented:** `main.c` creates a supported depth target, uses a color+depth render pass, builds a distinct sea graphics pipeline with depth test/write, supplies `TgCamera3D` view-projection via push constants, and records an indexed plane draw before the BUILDING screen's 2D overlay.
+- **Build validation:** Android `arm64-v8a` APK CI succeeded on the implementation commit. A physical-device visual check of this new pipeline is still pending; no screenshot or frame-time measurement is claimed.
+- **Not implemented yet:** animated waves, lighting, reflections, shoreline, and a reusable standalone `renderer3d` module.
 - **Target branch:** `feature/3d-renderer-foundation`.
 - **Compatibility rule:** the existing 2D path remains operational and is not replaced.
 
@@ -76,9 +77,7 @@ The core coordinates one frame in this order:
 4. Record the 2D world/UI pass with explicit overlay ordering.
 5. End rendering, submit once, and present once through the backend.
 
-The render target and render-pass strategy must support a depth attachment for 3D while preserving predictable 2D overlay behavior. A renderer records work into the frame coordinated by the backend; renderers do not own swapchain acquisition or presentation.
-
-Before implementation, inspect Vulkan format/depth-format support and choose a supported depth format. Depth testing should be enabled for 3D geometry and disabled or explicitly controlled for 2D overlays. The exact render-pass/dynamic-rendering design is an implementation decision to validate against the current Vulkan setup and Android drivers.
+The shared render pass has one color attachment and one depth attachment. `main.c` chooses the first supported format from D32, D24S8, and D16. The current frame coordinator waits on one frame fence before the next frame, so the depth target is a single image shared across the swapchain framebuffers; this must be revisited before allowing multiple frames in flight. The 3D pipeline enables depth test/write. The existing 2D pipeline has depth testing disabled and draws after the sea pass as an overlay. Renderers do not own swapchain acquisition or presentation.
 
 ## Initial sea scene contract — Stage 1
 
@@ -108,9 +107,9 @@ The dimensions and camera are deterministic starting values for the prototype an
 1. **Architecture and baseline review:** completed as documentation; module boundaries, frame contract, and the smallest sea-scene contract are recorded. No 2D behavior changes were made.
 2. **Camera and mesh foundations:** implemented and covered by passing strict-warning CI tests. `TgMesh3D` validates finite positions, indices, triangles, and AABB bounds, and writes the four-vertex/six-index XZ plane.
 3. **GPU mesh upload and scene ownership:** implemented. The checked buffer-layout module and opaque Vulkan upload resource are integrated with `TgSeaTestScene`; `main.c` invokes upload after device/queue initialization and releases the mesh before device destruction. Passing CI confirms compilation and portable tests, not successful execution on a physical GPU.
-4. **Device runtime validation:** pending; install/run the APK on a physical Android device and verify the upload log/result, selected memory path, and clean lifecycle behavior.
-5. **Minimal 3D pass:** pending; implement a separate 3D pipeline and depth attachment, then render the flat finite plane.
-6. **2D/3D composition:** only after the standalone 3D pass is stable, render a representative 2D layer in the same frame and verify no regression.
+4. **Minimal 3D pass:** implemented in `main.c`; the BUILDING test screen draws the flat plane with the depth-enabled sea pipeline, then draws existing 2D labels over it. Android APK compilation and packaging pass in CI.
+5. **Device visual validation:** pending; install/run this updated APK, verify the depth/pipeline logs and visible sea, and record any validation-layer issues. The user's prior no-crash report applies to the preceding upload-only build, not yet to this new 3D draw build.
+6. **Regression and composition validation:** verify the main menu and 2D world at runtime, then confirm the BUILDING screen's 2D text overlays remain visible over the 3D plane.
 7. **Progressive quality stages:** add waves, lighting, and higher detail separately, preserving a benchmark baseline at each step.
 
 ## Acceptance criteria for Stage 1
@@ -126,10 +125,10 @@ The dimensions and camera are deterministic starting values for the prototype an
 ## Current limitations to resolve before implementation
 
 - Vulkan setup, swapchain, render pass, pipeline, command recording, and presentation are currently concentrated in `src/main.c`.
-- The current render pass shown in the application has a color attachment only; a 3D depth attachment has not yet been established.
-- The existing vertex/pipeline setup is tailored to the current 2D drawing path.
-- The existing math module supplies vector/matrix primitives, and portable 3D camera, CPU mesh, and Vulkan GPU-upload modules now exist. The upload module is not yet called by the application; there is still no depth pipeline or 3D scene renderer.
-- The build script compiles `src/*.c` and Vulkan shaders with `glslc`; new source files are included by the wildcard, while shader compilation steps must be added explicitly.
+- The render pass now has a depth attachment and one shared depth image; per-swapchain/per-frame depth resources will be needed if the frame loop later supports multiple frames in flight.
+- The existing 2D vertex/pipeline setup remains tailored to 2D and is kept separate from the new position-only sea pipeline.
+- The minimum 3D draw path is still integrated in `main.c`; extracting it into a reusable `renderer3d` module remains future work.
+- The build script compiles `src/*.c`; shader compilation is explicit and now compiles both 2D and sea shader pairs.
 
 ## Change control
 
