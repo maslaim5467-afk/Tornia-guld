@@ -3,11 +3,11 @@
 ## Status
 
 - **Architecture proposal:** initial baseline for the progressive bounded-sea experiment.
-- **Implemented:** portable `TgCamera3D` camera state and view/projection update API; CPU-side `TgMesh3D` borrowed vertex/index data, validation, bounds calculation, and XZ plane geometry writer in `src/mesh3d.h/.c`. Host-side tests cover both modules.
-- **CI:** math, camera, and mesh tests passed in workflow run `44789001710` on commit `f8dd2371243aa00dd5cce83a3e13288ba2ab6fdf`; Android APK build for `arm64-v8a` passed in run `44789001715`.
-- **Backend design:** current Vulkan code was reviewed and the GPU mesh ownership, combined-buffer layout, staging upload, synchronization, and lifecycle contract are documented in [`3D_GPU_RESOURCE_DESIGN.md`](3D_GPU_RESOURCE_DESIGN.md).
-- **Runtime validation:** no on-device 3D camera or rendering validation has been performed.
-- **Not implemented yet:** Vulkan 3D pipeline, depth attachment, GPU mesh upload, `renderer3d`, and sea test scene.
+- **Implemented:** portable `TgCamera3D`; CPU-side `TgMesh3D`; checked combined-buffer layout calculator; opaque Vulkan GPU mesh upload resource in `src/gpu_mesh_vk.h/.c`.
+- **CI:** the layout/math/camera/mesh tests passed on commit `bdd38f321d44f1e5601aade6225ee8c248ddd24e`; the Android APK build for this exact commit is still being checked.
+- **Backend contract:** ownership, staging/direct-memory paths, barriers, fence synchronization, and lifecycle rules are documented in [`3D_GPU_RESOURCE_DESIGN.md`](3D_GPU_RESOURCE_DESIGN.md).
+- **Integration/runtime validation:** the upload module is not yet called by `main.c`; no on-device GPU upload, 3D draw, or camera validation has been performed.
+- **Not implemented yet:** scene-owned sea setup, renderer integration, Vulkan 3D graphics pipeline, depth attachment, and visible sea test scene.
 - **Target branch:** `feature/3d-renderer-foundation`.
 - **Compatibility rule:** the existing 2D path remains operational and is not replaced.
 
@@ -57,9 +57,11 @@ The current 2D implementation is still substantially embedded in `src/main.c`; i
 Owns 3D-specific camera state, mesh data, 3D pipelines, depth state, and 3D draw recording. Initial module candidates:
 
 - `src/camera3d.h/.c`: camera parameters and view/projection calculation, using `math3d`.
-- `src/mesh3d.h/.c`: implemented CPU-side position-only vertex/index descriptions, triangle and index validation, axis-aligned bounds, and a centered +Y-facing XZ plane writer. Arrays are borrowed; GPU handles remain backend-owned or are wrapped by an explicit resource object.
-- `src/renderer3d.h/.c`: 3D renderer lifecycle and recording of 3D draw commands.
-- `src/sea_test_scene.h/.c`: finite test-plane dimensions, transform, and simple material parameters. This is experiment content, not a general engine subsystem.
+- `src/mesh3d.h/.c`: implemented CPU-side position-only vertex/index descriptions, triangle and index validation, axis-aligned bounds, and a centered +Y-facing XZ plane writer. Arrays are borrowed.
+- `src/gpu_mesh_layout.h/.c`: implemented platform-independent combined vertex/index buffer layout calculation with overflow checks and host tests.
+- `src/gpu_mesh_vk.h/.c`: implemented opaque Vulkan GPU mesh allocation/upload/destruction. It owns the destination buffer and memory; staging resources, transient command pool, and upload fence are temporary. The current application does not call this module yet.
+- `src/renderer3d.h/.c`: proposed 3D renderer lifecycle and recording of 3D draw commands.
+- `src/sea_test_scene.h/.c`: proposed finite test-plane dimensions, transform, and simple material parameters. This is experiment content, not a general engine subsystem.
 
 These are proposed files, not existing implementation.
 
