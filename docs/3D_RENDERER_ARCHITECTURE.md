@@ -4,7 +4,7 @@
 
 - **Architecture proposal:** initial baseline for the progressive bounded-sea experiment.
 - **Implemented:** portable `TgCamera3D`; CPU-side `TgMesh3D`; checked combined-buffer layout calculator; opaque Vulkan GPU mesh upload resource in `src/gpu_mesh_vk.h/.c`.
-- **CI:** the layout/math/camera/mesh tests passed on commit `bdd38f321d44f1e5601aade6225ee8c248ddd24e`; the Android APK build for this exact commit is still being checked.
+- **CI:** the layout/math/camera/mesh suite passed on commit `bdd38f321d44f1e5601aade6225ee8c248ddd24e`; the Android `arm64-v8a` APK build, including compilation of the Vulkan upload module, also passed on that source commit (run `44790490617`).
 - **Backend contract:** ownership, staging/direct-memory paths, barriers, fence synchronization, and lifecycle rules are documented in [`3D_GPU_RESOURCE_DESIGN.md`](3D_GPU_RESOURCE_DESIGN.md).
 - **Integration/runtime validation:** the upload module is not yet called by `main.c`; no on-device GPU upload, 3D draw, or camera validation has been performed.
 - **Not implemented yet:** scene-owned sea setup, renderer integration, Vulkan 3D graphics pipeline, depth attachment, and visible sea test scene.
@@ -127,7 +127,7 @@ The dimensions and camera are deterministic starting values for the prototype an
 - Vulkan setup, swapchain, render pass, pipeline, command recording, and presentation are currently concentrated in `src/main.c`.
 - The current render pass shown in the application has a color attachment only; a 3D depth attachment has not yet been established.
 - The existing vertex/pipeline setup is tailored to the current 2D drawing path.
-- The existing math module supplies vector/matrix primitives, and portable 3D camera and CPU mesh modules now exist. There is still no GPU mesh upload path, depth pipeline, or 3D scene renderer.
+- The existing math module supplies vector/matrix primitives, and portable 3D camera, CPU mesh, and Vulkan GPU-upload modules now exist. The upload module is not yet called by the application; there is still no depth pipeline or 3D scene renderer.
 - The build script compiles `src/*.c` and Vulkan shaders with `glslc`; new source files are included by the wildcard, while shader compilation steps must be added explicitly.
 
 ## Change control
