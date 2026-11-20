@@ -165,7 +165,7 @@ The scene supplies a validated `TgMesh3D`. The module performs allocation, uploa
 1. **Complete:** platform-independent combined-buffer layout calculator with strict-warning overflow/alignment tests in the 3D CI workflow.
 2. **Implemented, pending integration:** Vulkan resource module for destination/staging allocation, memory selection, copy/direct-write path, barriers, fence synchronization, and deterministic destruction. The module is deliberately separate from the monolithic `main.c`.
 3. **Implemented:** `TgSeaTestScene` owns the 20 x 20 XZ CPU plane and GPU mesh. `main.c` calls the upload API after Vulkan device/queue initialization and releases the GPU mesh after `vkDeviceWaitIdle` but before `vkDestroyDevice`.
-4. **Implemented:** startup logs report upload success, index count, whether staging was used, and the selected destination memory flags. The existing 2D draw path is unchanged.
+4. **Implemented:** startup logs report upload success, index count, whether staging was used, and the selected destination memory flags. If the experimental upload fails, the error is logged and startup continues through the existing 2D path rather than making the new feature a hard dependency.
 5. Build the updated Android APK for `arm64-v8a`, then execute it on the target device and inspect the upload log/result.
 6. Only after device validation, integrate the mesh into a separate 3D graphics pipeline and depth-capable render target.
 7. Capture screenshot/video and frame-time, FPS, memory, device, GPU/driver, and resolution details.
