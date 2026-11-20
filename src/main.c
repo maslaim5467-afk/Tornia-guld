@@ -454,10 +454,9 @@ static int setup(E*e){
   VkResult sea_upload_result=VK_SUCCESS;
   if(tg_sea_test_scene_create(e->gpu,e->dev,e->q,e->qf,
                               &e->sea_test_scene,&sea_upload_result)!=0){
-   ERR("Sea test scene GPU upload failed (VkResult=%d)",(int)sea_upload_result);
-   return -1;
-  }
-  {
+   ERR("Sea test scene GPU upload failed (VkResult=%d); continuing with the existing 2D path",
+       (int)sea_upload_result);
+  }else{
    const TgGpuMeshVk *sea_mesh=tg_sea_test_scene_gpu_mesh(e->sea_test_scene);
    LOG("Sea test scene GPU mesh uploaded: %.1fx%.1f units, indices=%u, staging=%u, memoryFlags=0x%x",
        TG_SEA_TEST_SCENE_WIDTH,TG_SEA_TEST_SCENE_DEPTH,
