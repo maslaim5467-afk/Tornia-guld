@@ -17,7 +17,7 @@ The upload module is invoked during application startup through the bounded sea 
 The current Android renderer in `src/main.c` is still a single Vulkan owner and frame loop:
 
 - Device creation requests Vulkan 1.0 and selects one queue family that supports both graphics and presentation.
-- The render pass now has color and depth attachments. A device-supported depth format is selected from D32, D24S8, and D16 candidates; one depth image is shared by the current serialized frame loop, which waits on a single frame fence before recording the next frame.
+- The render pass now has color and depth attachments. A device-supported depth format is selected from D32, D32S8, D24S8, and D16 candidates; its external-to-subpass dependency covers color output plus early and late fragment tests. One depth image is shared by the current serialized frame loop, which waits on a single frame fence before recording the next frame.
 - The existing 2D path creates one large host-visible, host-coherent vertex buffer and rewrites it each frame.
 - Texture creation already demonstrates a staging-buffer upload into device-local image memory. That code is embedded in `main.c` and waits with `vkQueueWaitIdle`; it is a reference for the basic transfer route, not a reusable resource layer.
 - `closevk()` waits for the device to become idle and destroys the device-scoped resources. `APP_CMD_TERM_WINDOW` currently performs a full Vulkan teardown, so device resources must be recreated after the next window initialization.
