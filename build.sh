@@ -31,6 +31,8 @@ command -v glslc >/dev/null 2>&1 || { echo "ERROR: glslc is required to compile 
 echo "1. Compiling Vulkan shaders..."
 glslc assets/shaders/menu.vert -o assets/shaders/menu.vert.spv
 glslc assets/shaders/menu.frag -o assets/shaders/menu.frag.spv
+glslc assets/shaders/sea.vert -o assets/shaders/sea.vert.spv
+glslc assets/shaders/sea.frag -o assets/shaders/sea.frag.spv
 
 mkdir -p build/lib/arm64-v8a
 rm -f build/*.apk
