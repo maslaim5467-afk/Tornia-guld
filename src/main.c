@@ -9,6 +9,10 @@
 #include "animation.h"
 #include "player.h"
 #include "sea_test_scene.h"
+#include "camera3d.h"
+#include "math3d.h"
+#include "mesh3d.h"
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -23,6 +27,8 @@ typedef struct {
  struct android_app *app; VkInstance in; VkSurfaceKHR surface; VkPhysicalDevice gpu; VkDevice dev; VkQueue q;
  uint32_t qf,w,h,n; VkSwapchainKHR sw; VkFormat fmt; VkImage *imgs; VkImageView *views; VkFramebuffer *fb;
  VkRenderPass rp; VkPipelineLayout layout; VkPipeline pipe; VkCommandPool pool; VkCommandBuffer *cmd;
+ VkImage depth_image; VkDeviceMemory depth_memory; VkImageView depth_view; VkFormat depth_format;
+ VkPipelineLayout sea_layout; VkPipeline sea_pipe; TgCamera3D sea_camera; int sea_camera_ready;
  VkBuffer vb; VkDeviceMemory vm; VkSemaphore semA,semB; VkFence fence;
  VkImage atlas; VkDeviceMemory atlas_mem; VkImageView atlas_view; VkSampler atlas_sampler;
  VkImage sprite_image; VkDeviceMemory sprite_memory; VkImageView sprite_view; VkSampler sprite_sampler;
@@ -259,7 +265,7 @@ static void menu(E*e){
 static void draw_building(E*e){
  e->nv=0;
  float cx=(float)e->w*.5f;
- push(e,0,0,e->w,e->h,.035f,.052f,.07f);
+ if(e->sea_pipe==VK_NULL_HANDLE||e->sea_test_scene==NULL)push(e,0,0,e->w,e->h,.035f,.052f,.07f);
  label(e,"TORNIA_GULD",cx-84,e->h*.27f,4,.91f,.82f,.63f);
  label(e,"BUILDING",cx-56,e->h*.47f,3,.96f,.87f,.70f);
  label(e,"IN PROGRESS",cx-66,e->h*.56f,2,.72f,.78f,.82f);
@@ -444,6 +450,81 @@ static int initialize_2d_world(E*e){
  LOG("2D world resources initialized on demand");
  return 0;
 }
+
+static int create_depth_target(E*e){
+ static const VkFormat candidates[]={VK_FORMAT_D32_SFLOAT,VK_FORMAT_D24_UNORM_S8_UINT,VK_FORMAT_D16_UNORM};
+ VkFormatProperties properties;
+ VkImageCreateInfo image_info={.sType=VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,.imageType=VK_IMAGE_TYPE_2D,.extent={0u,0u,1u},.mipLevels=1u,.arrayLayers=1u,.samples=VK_SAMPLE_COUNT_1_BIT,.tiling=VK_IMAGE_TILING_OPTIMAL,.usage=VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,.sharingMode=VK_SHARING_MODE_EXCLUSIVE,.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED};
+ VkMemoryRequirements requirements;VkMemoryAllocateInfo allocation={.sType=VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};VkImageViewCreateInfo view={.sType=VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+ uint32_t type=UINT32_MAX,i;VkResult result;
+ if(e->w==0u||e->h==0u)return -1;
+ for(i=0u;i<(uint32_t)(sizeof(candidates)/sizeof(candidates[0]));++i){vkGetPhysicalDeviceFormatProperties(e->gpu,candidates[i],&properties);if((properties.optimalTilingFeatures&VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)!=0u){e->depth_format=candidates[i];break;}}
+ if(i==(uint32_t)(sizeof(candidates)/sizeof(candidates[0]))){ERR("No supported depth attachment format found");return -1;}
+ image_info.format=e->depth_format;image_info.extent.width=e->w;image_info.extent.height=e->h;
+ result=vkCreateImage(e->dev,&image_info,NULL,&e->depth_image);if(result!=VK_SUCCESS)goto failed;
+ vkGetImageMemoryRequirements(e->dev,e->depth_image,&requirements);
+ type=memtype(e,requirements.memoryTypeBits,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);if(type==UINT32_MAX)type=memtype(e,requirements.memoryTypeBits,0u);
+ if(type==UINT32_MAX){result=VK_ERROR_FEATURE_NOT_PRESENT;goto failed;}
+ allocation.allocationSize=requirements.size;allocation.memoryTypeIndex=type;
+ result=vkAllocateMemory(e->dev,&allocation,NULL,&e->depth_memory);if(result!=VK_SUCCESS)goto failed;
+ result=vkBindImageMemory(e->dev,e->depth_image,e->depth_memory,0u);if(result!=VK_SUCCESS)goto failed;
+ view.image=e->depth_image;view.viewType=VK_IMAGE_VIEW_TYPE_2D;view.format=e->depth_format;view.subresourceRange.aspectMask=VK_IMAGE_ASPECT_DEPTH_BIT;
+ if(e->depth_format==VK_FORMAT_D24_UNORM_S8_UINT)view.subresourceRange.aspectMask|=VK_IMAGE_ASPECT_STENCIL_BIT;
+ view.subresourceRange.levelCount=1u;view.subresourceRange.layerCount=1u;
+ result=vkCreateImageView(e->dev,&view,NULL,&e->depth_view);if(result!=VK_SUCCESS)goto failed;
+ LOG("Depth target ready: format=%d extent=%ux%u",(int)e->depth_format,e->w,e->h);return 0;
+failed:
+ ERR("Depth target creation failed: VkResult=%d",(int)result);
+ if(e->depth_view){vkDestroyImageView(e->dev,e->depth_view,NULL);e->depth_view=VK_NULL_HANDLE;}
+ if(e->depth_image){vkDestroyImage(e->dev,e->depth_image,NULL);e->depth_image=VK_NULL_HANDLE;}
+ if(e->depth_memory){vkFreeMemory(e->dev,e->depth_memory,NULL);e->depth_memory=VK_NULL_HANDLE;}
+ return -1;
+}
+static int create_sea_pipeline(E*e){
+ VkShaderModule vs=VK_NULL_HANDLE,fs=VK_NULL_HANDLE;VkPipelineShaderStageCreateInfo stages[2];
+ VkVertexInputBindingDescription binding={.binding=0u,.stride=(uint32_t)sizeof(TgMeshVertex3D),.inputRate=VK_VERTEX_INPUT_RATE_VERTEX};
+ VkVertexInputAttributeDescription attribute={.location=0u,.binding=0u,.format=VK_FORMAT_R32G32B32_SFLOAT,.offset=(uint32_t)offsetof(TgMeshVertex3D,position)};
+ VkPipelineVertexInputStateCreateInfo vertex={.sType=VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,.vertexBindingDescriptionCount=1u,.pVertexBindingDescriptions=&binding,.vertexAttributeDescriptionCount=1u,.pVertexAttributeDescriptions=&attribute};
+ VkPipelineInputAssemblyStateCreateInfo assembly={.sType=VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,.topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST};
+ VkPipelineViewportStateCreateInfo viewport={.sType=VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,.viewportCount=1u,.scissorCount=1u};
+ VkPipelineRasterizationStateCreateInfo raster={.sType=VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,.polygonMode=VK_POLYGON_MODE_FILL,.cullMode=VK_CULL_MODE_NONE,.lineWidth=1.0f};
+ VkPipelineMultisampleStateCreateInfo samples={.sType=VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT};
+ VkPipelineDepthStencilStateCreateInfo depth={.sType=VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,.depthTestEnable=VK_TRUE,.depthWriteEnable=VK_TRUE,.depthCompareOp=VK_COMPARE_OP_LESS};
+ VkPipelineColorBlendAttachmentState blend_attachment={.blendEnable=VK_FALSE,.colorWriteMask=VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT};
+ VkPipelineColorBlendStateCreateInfo blend={.sType=VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,.attachmentCount=1u,.pAttachments=&blend_attachment};
+ VkDynamicState dynamic_states[]={VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR};
+ VkPipelineDynamicStateCreateInfo dynamic={.sType=VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,.dynamicStateCount=2u,.pDynamicStates=dynamic_states};
+ VkPushConstantRange push={.stageFlags=VK_SHADER_STAGE_VERTEX_BIT,.offset=0u,.size=(uint32_t)sizeof(TgMat4)};
+ VkPipelineLayoutCreateInfo layout={.sType=VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,.pushConstantRangeCount=1u,.pPushConstantRanges=&push};
+ VkGraphicsPipelineCreateInfo pipeline={.sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,.stageCount=2u,.pStages=stages,.pVertexInputState=&vertex,.pInputAssemblyState=&assembly,.pViewportState=&viewport,.pRasterizationState=&raster,.pMultisampleState=&samples,.pDepthStencilState=&depth,.pColorBlendState=&blend,.pDynamicState=&dynamic,.subpass=0u};
+ VkResult result;
+ if(!e->sea_camera_ready)return -1;
+ vs=shader(e,"shaders/sea.vert.spv");fs=shader(e,"shaders/sea.frag.spv");
+ if(!vs||!fs){ERR("Sea shaders could not be loaded");goto failed;}
+ stages[0]=(VkPipelineShaderStageCreateInfo){.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_VERTEX_BIT,.module=vs,.pName="main"};
+ stages[1]=(VkPipelineShaderStageCreateInfo){.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_FRAGMENT_BIT,.module=fs,.pName="main"};
+ result=vkCreatePipelineLayout(e->dev,&layout,NULL,&e->sea_layout);if(result!=VK_SUCCESS)goto failed;
+ pipeline.layout=e->sea_layout;pipeline.renderPass=e->rp;
+ result=vkCreateGraphicsPipelines(e->dev,VK_NULL_HANDLE,1u,&pipeline,NULL,&e->sea_pipe);
+ if(result!=VK_SUCCESS){ERR("Sea graphics pipeline creation failed: VkResult=%d",(int)result);goto failed;}
+ vkDestroyShaderModule(e->dev,vs,NULL);vkDestroyShaderModule(e->dev,fs,NULL);LOG("3D sea graphics pipeline ready");return 0;
+failed:
+ if(vs)vkDestroyShaderModule(e->dev,vs,NULL);if(fs)vkDestroyShaderModule(e->dev,fs,NULL);
+ if(e->sea_pipe){vkDestroyPipeline(e->dev,e->sea_pipe,NULL);e->sea_pipe=VK_NULL_HANDLE;}
+ if(e->sea_layout){vkDestroyPipelineLayout(e->dev,e->sea_layout,NULL);e->sea_layout=VK_NULL_HANDLE;}
+ return -1;
+}
+static void draw_sea(E*e,VkCommandBuffer command){
+ const TgGpuMeshVk *mesh;VkBuffer buffer;VkDeviceSize offset;uint32_t count;
+ if(!e||command==VK_NULL_HANDLE||e->sea_pipe==VK_NULL_HANDLE||!e->sea_test_scene)return;
+ mesh=tg_sea_test_scene_gpu_mesh(e->sea_test_scene);buffer=tg_gpu_mesh_vk_buffer(mesh);count=tg_gpu_mesh_vk_index_count(mesh);
+ if(buffer==VK_NULL_HANDLE||count==0u)return;
+ offset=tg_gpu_mesh_vk_vertex_offset(mesh);vkCmdBindPipeline(command,VK_PIPELINE_BIND_POINT_GRAPHICS,e->sea_pipe);
+ vkCmdBindVertexBuffers(command,0u,1u,&buffer,&offset);vkCmdBindIndexBuffer(command,buffer,tg_gpu_mesh_vk_index_offset(mesh),VK_INDEX_TYPE_UINT32);
+ vkCmdPushConstants(command,e->sea_layout,VK_SHADER_STAGE_VERTEX_BIT,0u,(uint32_t)sizeof(TgMat4),e->sea_camera.view_projection.m);
+ vkCmdDrawIndexed(command,count,1u,0,0u,0u);
+}
+
 static int setup(E*e){
  const char*ie[]={VK_KHR_SURFACE_EXTENSION_NAME,VK_KHR_ANDROID_SURFACE_EXTENSION_NAME};VkApplicationInfo ai={.sType=VK_STRUCTURE_TYPE_APPLICATION_INFO,.pApplicationName="TORNIA_GULD",.apiVersion=VK_API_VERSION_1_0};
  VkInstanceCreateInfo ii={.sType=VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,.pApplicationInfo=&ai,.enabledExtensionCount=2,.ppEnabledExtensionNames=ie};if(vkCreateInstance(&ii,0,&e->in))return -1;
@@ -467,16 +548,32 @@ static int setup(E*e){
  VkSurfaceCapabilitiesKHR cp;vkGetPhysicalDeviceSurfaceCapabilitiesKHR(e->gpu,e->surface,&cp);uint32_t nf=0;vkGetPhysicalDeviceSurfaceFormatsKHR(e->gpu,e->surface,&nf,0);VkSurfaceFormatKHR*fs=malloc(nf*sizeof(*fs));vkGetPhysicalDeviceSurfaceFormatsKHR(e->gpu,e->surface,&nf,fs);VkSurfaceFormatKHR sf=fs[0];for(uint32_t i=0;i<nf;i++)if(fs[i].format==VK_FORMAT_R8G8B8A8_UNORM||fs[i].format==VK_FORMAT_B8G8R8A8_UNORM){sf=fs[i];break;}free(fs);e->fmt=sf.format;
  VkSurfaceTransformFlagBitsKHR chosenTransform=(cp.supportedTransforms&VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)?VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR:cp.currentTransform;
  e->w=cp.currentExtent.width;e->h=cp.currentExtent.height;
+ if(create_depth_target(e)!=0)return -1;
+ if(tg_camera3d_init(&e->sea_camera,tg_vec3(0.0f,8.0f,12.0f),tg_vec3(0.0f,0.0f,0.0f),tg_vec3(0.0f,1.0f,0.0f),1.0471975512f,(float)e->w/(float)e->h,0.1f,100.0f)==0){
+  /* Vulkan's positive-height viewport has a downward framebuffer Y axis. */
+  e->sea_camera.projection.m[5]*=-1.0f;
+  e->sea_camera.view_projection=tg_mat4_multiply(e->sea_camera.projection,e->sea_camera.view);
+  e->sea_camera_ready=1;
+ }else{ERR("Sea camera initialization failed; 3D test scene is disabled");}
  LOG("Surface extent=%ux%u native=%dx%d currentTransform=0x%x chosenTransform=0x%x supported=0x%x",e->w,e->h,ANativeWindow_getWidth(e->app->window),ANativeWindow_getHeight(e->app->window),cp.currentTransform,chosenTransform,cp.supportedTransforms);
  uint32_t ni=cp.minImageCount+1;if(cp.maxImageCount&&ni>cp.maxImageCount)ni=cp.maxImageCount;VkSwapchainCreateInfoKHR sw={.sType=VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,.surface=e->surface,.minImageCount=ni,.imageFormat=e->fmt,.imageColorSpace=sf.colorSpace,.imageExtent=cp.currentExtent,.imageArrayLayers=1,.imageUsage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,.imageSharingMode=VK_SHARING_MODE_EXCLUSIVE,.preTransform=chosenTransform,.compositeAlpha=VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,.presentMode=VK_PRESENT_MODE_FIFO_KHR,.clipped=VK_TRUE};if(vkCreateSwapchainKHR(e->dev,&sw,0,&e->sw))return -1;
  vkGetSwapchainImagesKHR(e->dev,e->sw,&e->n,0);e->imgs=malloc(e->n*sizeof(VkImage));vkGetSwapchainImagesKHR(e->dev,e->sw,&e->n,e->imgs);e->views=calloc(e->n,sizeof(VkImageView));e->fb=calloc(e->n,sizeof(VkFramebuffer));e->cmd=calloc(e->n,sizeof(VkCommandBuffer));
  for(uint32_t i=0;i<e->n;i++){VkImageViewCreateInfo vi={.sType=VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,.image=e->imgs[i],.viewType=VK_IMAGE_VIEW_TYPE_2D,.format=e->fmt,.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1}};if(vkCreateImageView(e->dev,&vi,0,&e->views[i]))return -1;}
- VkAttachmentDescription ad={.format=e->fmt,.samples=VK_SAMPLE_COUNT_1_BIT,.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR,.storeOp=VK_ATTACHMENT_STORE_OP_STORE,.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED,.finalLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR};VkAttachmentReference ar={0,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};VkSubpassDescription sub={.pipelineBindPoint=VK_PIPELINE_BIND_POINT_GRAPHICS,.colorAttachmentCount=1,.pColorAttachments=&ar};VkRenderPassCreateInfo ri={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,.attachmentCount=1,.pAttachments=&ad,.subpassCount=1,.pSubpasses=&sub};if(vkCreateRenderPass(e->dev,&ri,0,&e->rp))return -1;
+ VkAttachmentDescription attachments[2]={
+  {.format=e->fmt,.samples=VK_SAMPLE_COUNT_1_BIT,.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR,.storeOp=VK_ATTACHMENT_STORE_OP_STORE,.stencilLoadOp=VK_ATTACHMENT_LOAD_OP_DONT_CARE,.stencilStoreOp=VK_ATTACHMENT_STORE_OP_DONT_CARE,.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED,.finalLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR},
+  {.format=e->depth_format,.samples=VK_SAMPLE_COUNT_1_BIT,.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR,.storeOp=VK_ATTACHMENT_STORE_OP_DONT_CARE,.stencilLoadOp=VK_ATTACHMENT_LOAD_OP_DONT_CARE,.stencilStoreOp=VK_ATTACHMENT_STORE_OP_DONT_CARE,.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED,.finalLayout=VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL}
+ };
+ VkAttachmentReference color_ref={0u,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},depth_ref={1u,VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
+ VkSubpassDescription sub={.pipelineBindPoint=VK_PIPELINE_BIND_POINT_GRAPHICS,.colorAttachmentCount=1u,.pColorAttachments=&color_ref,.pDepthStencilAttachment=&depth_ref};
+ VkSubpassDependency dep={.srcSubpass=VK_SUBPASS_EXTERNAL,.dstSubpass=0u,.srcStageMask=VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,.dstStageMask=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,.srcAccessMask=0u,.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT};
+ VkRenderPassCreateInfo ri={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,.attachmentCount=2u,.pAttachments=attachments,.subpassCount=1u,.pSubpasses=&sub,.dependencyCount=1u,.pDependencies=&dep};
+ if(vkCreateRenderPass(e->dev,&ri,0,&e->rp))return -1;
  VkDescriptorSetLayoutBinding db[2]={{.binding=0,.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,.descriptorCount=1,.stageFlags=VK_SHADER_STAGE_FRAGMENT_BIT},{.binding=1,.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,.descriptorCount=1,.stageFlags=VK_SHADER_STAGE_FRAGMENT_BIT}};VkDescriptorSetLayoutCreateInfo dl={.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,.bindingCount=2,.pBindings=db};if(vkCreateDescriptorSetLayout(e->dev,&dl,0,&e->descriptor_layout))return -1;
  VkShaderModule vs=shader(e,"shaders/menu.vert.spv"),fsmod=shader(e,"shaders/menu.frag.spv");if(!vs||!fsmod)return -1;
  VkPipelineShaderStageCreateInfo st[2]={{.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_VERTEX_BIT,.module=vs,.pName="main"},{.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_FRAGMENT_BIT,.module=fsmod,.pName="main"}};
  VkVertexInputBindingDescription bd={0,sizeof(V),VK_VERTEX_INPUT_RATE_VERTEX};VkVertexInputAttributeDescription at[4]={{0,0,VK_FORMAT_R32G32_SFLOAT,0},{1,0,VK_FORMAT_R32G32B32A32_SFLOAT,16},{2,0,VK_FORMAT_R32G32_SFLOAT,8},{3,0,VK_FORMAT_R32_SFLOAT,32}};VkPipelineVertexInputStateCreateInfo vx={.sType=VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,.vertexBindingDescriptionCount=1,.pVertexBindingDescriptions=&bd,.vertexAttributeDescriptionCount=4,.pVertexAttributeDescriptions=at};VkPipelineInputAssemblyStateCreateInfo ia={.sType=VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,.topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST};VkPipelineViewportStateCreateInfo vp={.sType=VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,.viewportCount=1,.scissorCount=1};VkPipelineRasterizationStateCreateInfo rs={.sType=VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,.polygonMode=VK_POLYGON_MODE_FILL,.cullMode=VK_CULL_MODE_NONE,.lineWidth=1};VkPipelineMultisampleStateCreateInfo ms={.sType=VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT};VkPipelineColorBlendAttachmentState ba={.blendEnable=VK_TRUE,.srcColorBlendFactor=VK_BLEND_FACTOR_SRC_ALPHA,.dstColorBlendFactor=VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,.colorBlendOp=VK_BLEND_OP_ADD,.srcAlphaBlendFactor=VK_BLEND_FACTOR_ONE,.dstAlphaBlendFactor=VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,.alphaBlendOp=VK_BLEND_OP_ADD,.colorWriteMask=15};VkPipelineColorBlendStateCreateInfo cb={.sType=VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,.attachmentCount=1,.pAttachments=&ba};VkDynamicState dyns[]={VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR};VkPipelineDynamicStateCreateInfo dy={.sType=VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,.dynamicStateCount=2,.pDynamicStates=dyns};VkPipelineLayoutCreateInfo li={.sType=VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,.setLayoutCount=1,.pSetLayouts=&e->descriptor_layout};if(vkCreatePipelineLayout(e->dev,&li,0,&e->layout))return -1;VkGraphicsPipelineCreateInfo pi={.sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,.stageCount=2,.pStages=st,.pVertexInputState=&vx,.pInputAssemblyState=&ia,.pViewportState=&vp,.pRasterizationState=&rs,.pMultisampleState=&ms,.pColorBlendState=&cb,.pDynamicState=&dy,.layout=e->layout,.renderPass=e->rp};VkResult pkr=vkCreateGraphicsPipelines(e->dev,0,1,&pi,0,&e->pipe);vkDestroyShaderModule(e->dev,vs,0);vkDestroyShaderModule(e->dev,fsmod,0);if(pkr)return -1;
- for(uint32_t i=0;i<e->n;i++){VkFramebufferCreateInfo fi={.sType=VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,.renderPass=e->rp,.attachmentCount=1,.pAttachments=&e->views[i],.width=e->w,.height=e->h,.layers=1};if(vkCreateFramebuffer(e->dev,&fi,0,&e->fb[i]))return -1;}
+ if(e->sea_camera_ready&&create_sea_pipeline(e)!=0)ERR("3D sea pipeline unavailable; retaining 2D rendering");
+ for(uint32_t i=0;i<e->n;i++){VkImageView framebuffer_attachments[2]={e->views[i],e->depth_view};VkFramebufferCreateInfo fi={.sType=VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,.renderPass=e->rp,.attachmentCount=2u,.pAttachments=framebuffer_attachments,.width=e->w,.height=e->h,.layers=1u};if(vkCreateFramebuffer(e->dev,&fi,0,&e->fb[i]))return -1;}
  VkCommandPoolCreateInfo pci={.sType=VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,.flags=VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,.queueFamilyIndex=e->qf};if(vkCreateCommandPool(e->dev,&pci,0,&e->pool))return -1;VkCommandBufferAllocateInfo cai={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,.commandPool=e->pool,.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY,.commandBufferCount=e->n};if(vkAllocateCommandBuffers(e->dev,&cai,e->cmd))return -1;
  VkBufferCreateInfo bi={.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,.size=sizeof(V)*MAXV,.usage=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,.sharingMode=VK_SHARING_MODE_EXCLUSIVE};if(vkCreateBuffer(e->dev,&bi,0,&e->vb))return -1;VkMemoryRequirements mr;vkGetBufferMemoryRequirements(e->dev,e->vb,&mr);uint32_t mt=memtype(e,mr.memoryTypeBits,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);if(mt==UINT32_MAX)return -1;VkMemoryAllocateInfo mai={.sType=VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,.allocationSize=mr.size,.memoryTypeIndex=mt};if(vkAllocateMemory(e->dev,&mai,0,&e->vm))return -1;vkBindBufferMemory(e->dev,e->vb,e->vm,0);
  /* Experimental 2D texture assets are intentionally excluded from engine startup. */
@@ -505,8 +602,8 @@ static void frame(E*e){
    world_camera_follow(&e->camera,e->player.x,e->player.y,.5f,.55f,
                        (float)e->w,(float)e->h,(float)delta_ms/1000.0f,8.0f);
   }
- }vkWaitForFences(e->dev,1,&e->fence,VK_TRUE,UINT64_MAX);uint32_t ix;if(vkAcquireNextImageKHR(e->dev,e->sw,UINT64_MAX,e->semA,0,&ix)!=VK_SUCCESS)return;if(e->scene==1)draw_world(e);else if(e->scene==2)draw_building(e);else menu(e);void*m;if(vkMapMemory(e->dev,e->vm,0,e->nv*sizeof(V),0,&m))return;memcpy(m,e->v,e->nv*sizeof(V));vkUnmapMemory(e->dev,e->vm);VkCommandBuffer c=e->cmd[ix];vkResetCommandBuffer(c,0);VkCommandBufferBeginInfo bi={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};vkBeginCommandBuffer(c,&bi);VkClearValue cl={.color={{.035f,.052f,.07f,1}}};VkRenderPassBeginInfo ri={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,.renderPass=e->rp,.framebuffer=e->fb[ix],.renderArea={{0,0},{e->w,e->h}},.clearValueCount=1,.pClearValues=&cl};vkCmdBeginRenderPass(c,&ri,VK_SUBPASS_CONTENTS_INLINE);VkViewport vp={0,0,(float)e->w,(float)e->h,0,1};VkRect2D sc={{0,0},{e->w,e->h}};vkCmdSetViewport(c,0,1,&vp);vkCmdSetScissor(c,0,1,&sc);vkCmdBindPipeline(c,VK_PIPELINE_BIND_POINT_GRAPHICS,e->pipe);/* The current menu/building shaders are untextured; texture descriptors are created only when the texture renderer is initialized. */VkDeviceSize off=0;vkCmdBindVertexBuffers(c,0,1,&e->vb,&off);vkCmdDraw(c,e->nv,1,0,0);vkCmdEndRenderPass(c);vkEndCommandBuffer(c);vkResetFences(e->dev,1,&e->fence);VkPipelineStageFlags wait=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;VkSubmitInfo si={.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semA,.pWaitDstStageMask=&wait,.commandBufferCount=1,.pCommandBuffers=&c,.signalSemaphoreCount=1,.pSignalSemaphores=&e->semB};if(vkQueueSubmit(e->q,1,&si,e->fence))return;VkPresentInfoKHR pr={.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semB,.swapchainCount=1,.pSwapchains=&e->sw,.pImageIndices=&ix};vkQueuePresentKHR(e->q,&pr);}
-static void closevk(E*e){if(e->dev)vkDeviceWaitIdle(e->dev);if(e->dev&&e->sea_test_scene){tg_sea_test_scene_destroy(e->dev,e->sea_test_scene);e->sea_test_scene=NULL;}if(e->dev){if(e->fence)vkDestroyFence(e->dev,e->fence,0);if(e->sprite_sampler)vkDestroySampler(e->dev,e->sprite_sampler,0);if(e->sprite_view)vkDestroyImageView(e->dev,e->sprite_view,0);if(e->sprite_image)vkDestroyImage(e->dev,e->sprite_image,0);if(e->sprite_memory)vkFreeMemory(e->dev,e->sprite_memory,0);if(e->descriptor_pool)vkDestroyDescriptorPool(e->dev,e->descriptor_pool,0);if(e->atlas_sampler)vkDestroySampler(e->dev,e->atlas_sampler,0);if(e->atlas_view)vkDestroyImageView(e->dev,e->atlas_view,0);if(e->atlas)vkDestroyImage(e->dev,e->atlas,0);if(e->atlas_mem)vkFreeMemory(e->dev,e->atlas_mem,0);if(e->descriptor_layout)vkDestroyDescriptorSetLayout(e->dev,e->descriptor_layout,0);if(e->semA)vkDestroySemaphore(e->dev,e->semA,0);if(e->semB)vkDestroySemaphore(e->dev,e->semB,0);if(e->vb)vkDestroyBuffer(e->dev,e->vb,0);if(e->vm)vkFreeMemory(e->dev,e->vm,0);if(e->pool)vkDestroyCommandPool(e->dev,e->pool,0);for(uint32_t i=0;i<e->n;i++){if(e->fb&&e->fb[i])vkDestroyFramebuffer(e->dev,e->fb[i],0);if(e->views&&e->views[i])vkDestroyImageView(e->dev,e->views[i],0);}if(e->pipe)vkDestroyPipeline(e->dev,e->pipe,0);if(e->layout)vkDestroyPipelineLayout(e->dev,e->layout,0);if(e->rp)vkDestroyRenderPass(e->dev,e->rp,0);if(e->sw)vkDestroySwapchainKHR(e->dev,e->sw,0);vkDestroyDevice(e->dev,0);}if(e->surface&&e->in)vkDestroySurfaceKHR(e->in,e->surface,0);if(e->in)vkDestroyInstance(e->in,0);free(e->imgs);free(e->views);free(e->fb);free(e->cmd);e->ready=0;memset(&e->in,0,sizeof(e->in));e->dev=VK_NULL_HANDLE;e->surface=VK_NULL_HANDLE;e->gpu=VK_NULL_HANDLE;e->q=VK_NULL_HANDLE;e->qf=0u;}
+ }vkWaitForFences(e->dev,1,&e->fence,VK_TRUE,UINT64_MAX);uint32_t ix;if(vkAcquireNextImageKHR(e->dev,e->sw,UINT64_MAX,e->semA,0,&ix)!=VK_SUCCESS)return;if(e->scene==1)draw_world(e);else if(e->scene==2)draw_building(e);else menu(e);void*m;if(vkMapMemory(e->dev,e->vm,0,e->nv*sizeof(V),0,&m))return;memcpy(m,e->v,e->nv*sizeof(V));vkUnmapMemory(e->dev,e->vm);VkCommandBuffer c=e->cmd[ix];vkResetCommandBuffer(c,0);VkCommandBufferBeginInfo bi={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};vkBeginCommandBuffer(c,&bi);VkClearValue clear_values[2]={{{.035f,.052f,.07f,1.0f}},{.depthStencil={1.0f,0u}}};VkRenderPassBeginInfo ri={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,.renderPass=e->rp,.framebuffer=e->fb[ix],.renderArea={{0,0},{e->w,e->h}},.clearValueCount=2u,.pClearValues=clear_values};vkCmdBeginRenderPass(c,&ri,VK_SUBPASS_CONTENTS_INLINE);VkViewport vp={0,0,(float)e->w,(float)e->h,0,1};VkRect2D sc={{0,0},{e->w,e->h}};vkCmdSetViewport(c,0,1,&vp);vkCmdSetScissor(c,0,1,&sc);if(e->scene==2&&e->sea_pipe!=VK_NULL_HANDLE)draw_sea(e,c);vkCmdBindPipeline(c,VK_PIPELINE_BIND_POINT_GRAPHICS,e->pipe);/* The current menu/building shaders are untextured; texture descriptors are created only when the texture renderer is initialized. */VkDeviceSize off=0;vkCmdBindVertexBuffers(c,0,1,&e->vb,&off);vkCmdDraw(c,e->nv,1,0,0);vkCmdEndRenderPass(c);vkEndCommandBuffer(c);vkResetFences(e->dev,1,&e->fence);VkPipelineStageFlags wait=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;VkSubmitInfo si={.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semA,.pWaitDstStageMask=&wait,.commandBufferCount=1,.pCommandBuffers=&c,.signalSemaphoreCount=1,.pSignalSemaphores=&e->semB};if(vkQueueSubmit(e->q,1,&si,e->fence))return;VkPresentInfoKHR pr={.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semB,.swapchainCount=1,.pSwapchains=&e->sw,.pImageIndices=&ix};vkQueuePresentKHR(e->q,&pr);}
+static void closevk(E*e){if(e->dev)vkDeviceWaitIdle(e->dev);if(e->dev&&e->sea_test_scene){tg_sea_test_scene_destroy(e->dev,e->sea_test_scene);e->sea_test_scene=NULL;}if(e->dev){if(e->fence)vkDestroyFence(e->dev,e->fence,0);if(e->sprite_sampler)vkDestroySampler(e->dev,e->sprite_sampler,0);if(e->sprite_view)vkDestroyImageView(e->dev,e->sprite_view,0);if(e->sprite_image)vkDestroyImage(e->dev,e->sprite_image,0);if(e->sprite_memory)vkFreeMemory(e->dev,e->sprite_memory,0);if(e->descriptor_pool)vkDestroyDescriptorPool(e->dev,e->descriptor_pool,0);if(e->atlas_sampler)vkDestroySampler(e->dev,e->atlas_sampler,0);if(e->atlas_view)vkDestroyImageView(e->dev,e->atlas_view,0);if(e->atlas)vkDestroyImage(e->dev,e->atlas,0);if(e->atlas_mem)vkFreeMemory(e->dev,e->atlas_mem,0);if(e->descriptor_layout)vkDestroyDescriptorSetLayout(e->dev,e->descriptor_layout,0);if(e->semA)vkDestroySemaphore(e->dev,e->semA,0);if(e->semB)vkDestroySemaphore(e->dev,e->semB,0);if(e->vb)vkDestroyBuffer(e->dev,e->vb,0);if(e->vm)vkFreeMemory(e->dev,e->vm,0);if(e->pool)vkDestroyCommandPool(e->dev,e->pool,0);for(uint32_t i=0;i<e->n;i++){if(e->fb&&e->fb[i])vkDestroyFramebuffer(e->dev,e->fb[i],0);if(e->views&&e->views[i])vkDestroyImageView(e->dev,e->views[i],0);}if(e->sea_pipe)vkDestroyPipeline(e->dev,e->sea_pipe,0);if(e->sea_layout)vkDestroyPipelineLayout(e->dev,e->sea_layout,0);if(e->pipe)vkDestroyPipeline(e->dev,e->pipe,0);if(e->layout)vkDestroyPipelineLayout(e->dev,e->layout,0);if(e->depth_view)vkDestroyImageView(e->dev,e->depth_view,0);if(e->depth_image)vkDestroyImage(e->dev,e->depth_image,0);if(e->depth_memory)vkFreeMemory(e->dev,e->depth_memory,0);if(e->rp)vkDestroyRenderPass(e->dev,e->rp,0);if(e->sw)vkDestroySwapchainKHR(e->dev,e->sw,0);vkDestroyDevice(e->dev,0);}if(e->surface&&e->in)vkDestroySurfaceKHR(e->in,e->surface,0);if(e->in)vkDestroyInstance(e->in,0);free(e->imgs);free(e->views);free(e->fb);free(e->cmd);e->ready=0;memset(&e->in,0,sizeof(e->in));e->dev=VK_NULL_HANDLE;e->surface=VK_NULL_HANDLE;e->gpu=VK_NULL_HANDLE;e->q=VK_NULL_HANDLE;e->qf=0u;}
 static int32_t input(struct android_app*a,AInputEvent*ev){
  E*e=a->userData;
  if(!e->ready||AInputEvent_getType(ev)!=AINPUT_EVENT_TYPE_MOTION)return 0;
