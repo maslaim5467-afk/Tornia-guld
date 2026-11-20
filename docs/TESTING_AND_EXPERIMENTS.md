@@ -73,29 +73,30 @@ Copy this section for each new experiment.
 - **Changes made:** Experiment objective and initial test plan recorded only; no implementation or test result is claimed.
 - **Follow-up:** Review the current forest assets and renderer, implement the smallest representative forest scene, run it on a physical Android device, and update this entry with evidence and measured results.
 
-### [EXP-002] Detailed 3D Sea Rendering and Renderer Evaluation
+### [EXP-002] Progressive 3D Sea Rendering and Renderer Evaluation
 
 - **Date:** 2026-11-20 (experiment recorded; execution date not yet established)
-- **Subsystem / feature:** 3D renderer foundation, 3D scene rendering, water-surface representation, visual detail, and performance; future 2D/3D renderer coexistence.
+- **Subsystem / feature:** 3D renderer foundation, bounded 3D water surface, rendering quality scalability, runtime performance, and future 2D/3D renderer coexistence.
 - **Branch / commit:** `feature/3d-renderer-foundation` / commit to be recorded when implementation begins.
 - **Environment:** Intended Android target using the project's native Vulkan rendering path; exact device, Android version, ABI, build configuration, and graphics-driver details must be recorded when tested.
-- **Objective:** Construct a detailed 3D sea environment as a practical evaluation of the 3D engine being developed to operate alongside the existing 2D engine. The experiment must assess whether the 3D foundation can render a visually rich, convincing sea scene and provide evidence about rendering capability and runtime performance. The 3D work is additive: it must not replace or regress the 2D renderer.
+- **Objective:** Evaluate the 3D engine, which is intended to operate alongside the 2D engine, by building a sea scene in a **fixed, bounded area**. Start at the lowest practical visual and computational complexity, then increase quality in controlled stages. The experiment must measure visual correctness and runtime cost at each stage. This is an additive 3D evaluation and must not replace or regress the 2D renderer.
+- **Initial scene scope:** A finite rectangular water surface with defined dimensions and a fixed initial camera/view. Do not begin with an infinite ocean, open-world water system, shoreline, or advanced environmental effects.
 - **Prerequisites:**
   1. Review the current 3D math foundation and Vulkan backend integration before selecting the implementation path.
-  2. Establish a minimal 3D scene, camera, geometry, material, and rendering path.
-  3. Define the target visual scope and the actual test device before setting quantitative performance thresholds.
+  2. Establish the smallest viable 3D scene, camera, geometry, material, and rendering path.
+  3. Record the target Android device, resolution, and graphics configuration before setting quantitative performance thresholds.
   4. Keep 3D implementation and experiment changes on `feature/3d-renderer-foundation`; do not merge without review and explicit approval.
-- **Procedure (initial plan; refine before execution):**
-  1. Implement a 3D sea test scene using the engine's native rendering architecture.
-  2. Develop the water surface with visible geometric and/or shader-driven detail appropriate to the selected design, such as waves, changing surface normals, and light response. The specific technique remains an implementation decision to validate.
-  3. Add environmental detail needed to evaluate the sea convincingly, potentially including horizon/depth variation, reflections or specular highlights, shoreline transitions, and atmospheric lighting. These are candidate evaluation features, not yet approved mandatory scope.
-  4. Provide camera movement or viewing angles that expose the sea surface, depth cues, and visual stability.
-  5. Measure frame time, frame rate, memory use, and rendering stability on the target Android device; record resolution and graphics settings with the results.
-  6. Verify that the 3D scene can be composed with a representative 2D scene in the same frame through the intended shared rendering architecture, without breaking the 2D path.
-- **Expected result:** A detailed and visually coherent 3D sea scene rendered by Tornia-guld, with stable surface appearance and camera behavior. The experiment should produce reproducible performance observations and establish whether 3D rendering can coexist with 2D rendering in the engine architecture. No performance result or successful coexistence is claimed until measured and verified.
+- **Procedure (progressive plan; execute one stage at a time):**
+  1. **Stage 1 — Minimum quality:** Render a finite, flat, uniformly colored water plane with basic camera and depth handling. No waves, reflections, transparency, foam, shoreline, or decorative detail. Verify geometry, visibility, coordinate conventions, and stable rendering.
+  2. **Stage 2 — Basic surface variation:** Add a simple, low-cost wave or surface animation. Compare its visual result and performance against Stage 1.
+  3. **Stage 3 — Lighting response:** Add basic water shading and controlled light response; introduce reflections or specular highlights only if the previous stages remain stable.
+  4. **Stage 4 — Higher detail:** Increase mesh/shader detail and consider foam, depth/color variation, transparency, and shoreline effects as separately measured additions. Do not add all effects at once.
+  5. At every stage, record frame time/FPS, memory use, rendering stability, resolution, graphics settings, and any visual defects on the target Android device. Keep the previous stage as a baseline for comparison.
+  6. After the standalone 3D stages are validated, test composition with a representative 2D scene in the same frame through the intended shared rendering architecture, without breaking the 2D path.
+- **Expected result:** A finite 3D sea prototype that grows in visual complexity through measurable stages. Each stage must have a separately recorded result; no performance result or successful 2D/3D coexistence is claimed until measured and verified.
 - **Observed result:** Not recorded; implementation and test execution have not yet been performed or verified.
 - **Status:** Not run
-- **Evidence:** To be added after execution: screenshots or video, commit reference, build configuration, device/driver details, logs, frame-time or FPS measurements, memory observations, and evidence of 2D/3D composition.
-- **Issues and limitations:** Exact sea-scene scope, visual reference, required detail level, water technique, target device, resolution, performance thresholds, and acceptance criteria remain to be agreed. The candidate effects listed above are not commitments to implement every effect.
-- **Changes made:** Experiment objective and initial test plan recorded only. No renderer implementation, visual result, benchmark, or test pass is claimed.
-- **Follow-up:** Agree on the sea's visual scope and acceptance criteria; inspect the current Vulkan rendering path; then implement the smallest 3D sea prototype that can meaningfully test visual quality, performance, and coexistence with 2D.
+- **Evidence:** To be added after each stage: screenshots or video, commit reference, build configuration, device/driver details, logs, frame-time or FPS measurements, memory observations, and later evidence of 2D/3D composition.
+- **Issues and limitations:** Exact water-plane dimensions, visual reference, target device, resolution, performance thresholds, and quantitative acceptance criteria remain to be agreed. Advanced water effects are optional later-stage candidates, not initial requirements.
+- **Changes made:** Experiment scope and staged test plan recorded only. No renderer implementation, visual result, benchmark, or test pass is claimed.
+- **Follow-up:** Inspect the current Vulkan rendering path and define the finite test-plane dimensions and camera. Then implement Stage 1 only, build and run it, and record evidence before advancing to Stage 2.
