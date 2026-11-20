@@ -3,10 +3,10 @@
 ## Status
 
 - **Architecture proposal:** initial baseline for the progressive bounded-sea experiment.
-- **Implemented:** portable `TgCamera3D` camera state and view/projection update API in `src/camera3d.h/.c`, with host-side tests in `tests/camera3d_test.c`.
-- **CI:** the dedicated 3D math and camera workflow passed on commit `79cca117c39ab29f9d00019df29bfd3b74d309b9`.
+- **Implemented:** portable `TgCamera3D` camera state and view/projection update API; CPU-side `TgMesh3D` borrowed vertex/index data, validation, bounds calculation, and XZ plane geometry writer in `src/mesh3d.h/.c`. Host-side tests cover both modules.
+- **CI:** the dedicated math/camera workflow passed on commit `79cca117c39ab29f9d00019df29bfd3b74d309b9`; the mesh test has now been added to that workflow and is awaiting its run.
 - **Pending:** Android APK build workflow is still running; no on-device camera or rendering validation has been performed.
-- **Not implemented yet:** Vulkan 3D pipeline, depth attachment, mesh upload, `renderer3d`, and sea test scene.
+- **Not implemented yet:** Vulkan 3D pipeline, depth attachment, GPU mesh upload, `renderer3d`, and sea test scene.
 - **Target branch:** `feature/3d-renderer-foundation`.
 - **Compatibility rule:** the existing 2D path remains operational and is not replaced.
 
@@ -56,7 +56,7 @@ The current 2D implementation is still substantially embedded in `src/main.c`; i
 Owns 3D-specific camera state, mesh data, 3D pipelines, depth state, and 3D draw recording. Initial module candidates:
 
 - `src/camera3d.h/.c`: camera parameters and view/projection calculation, using `math3d`.
-- `src/mesh3d.h/.c`: CPU-side vertex/index descriptions and validation; GPU handles remain backend-owned or are wrapped by an explicit resource object.
+- `src/mesh3d.h/.c`: implemented CPU-side position-only vertex/index descriptions, triangle and index validation, axis-aligned bounds, and a centered +Y-facing XZ plane writer. Arrays are borrowed; GPU handles remain backend-owned or are wrapped by an explicit resource object.
 - `src/renderer3d.h/.c`: 3D renderer lifecycle and recording of 3D draw commands.
 - `src/sea_test_scene.h/.c`: finite test-plane dimensions, transform, and simple material parameters. This is experiment content, not a general engine subsystem.
 
@@ -102,7 +102,7 @@ The dimensions and camera are deterministic starting values for the prototype an
 ## Implementation sequence
 
 1. **Architecture and baseline review:** completed as documentation; module boundaries, frame contract, and the smallest sea-scene contract are recorded. No 2D behavior changes were made.
-2. **Camera foundation:** implemented `TgCamera3D` with validated initialization, pose updates, aspect-ratio updates, view/projection matrices, and projection * view composition. Dedicated strict-warning host tests passed in CI. Mesh foundation remains pending; no Vulkan rendering claim.
+2. **Camera and mesh foundations:** implemented `TgCamera3D` and its host tests. Implemented `TgMesh3D` as a non-owning CPU mesh view with finite-position/index/triangle validation, AABB calculation, and a four-vertex/six-index XZ plane generator. Strict-warning CI tests for mesh are added and awaiting execution. No Vulkan rendering claim.
 3. **Backend integration design:** inspect the current monolithic Vulkan setup, select depth attachment/render-pass strategy, and define resource ownership.
 4. **Minimal 3D pass:** implement a separate 3D pipeline and render the flat finite plane.
 5. **Android validation:** build and run on the target device; capture evidence and record frame time, FPS, and memory.
@@ -124,7 +124,7 @@ The dimensions and camera are deterministic starting values for the prototype an
 - Vulkan setup, swapchain, render pass, pipeline, command recording, and presentation are currently concentrated in `src/main.c`.
 - The current render pass shown in the application has a color attachment only; a 3D depth attachment has not yet been established.
 - The existing vertex/pipeline setup is tailored to the current 2D drawing path.
-- The existing math module supplies vector/matrix primitives, and a portable 3D camera module now exists. There is still no mesh upload path, depth pipeline, or 3D scene renderer.
+- The existing math module supplies vector/matrix primitives, and portable 3D camera and CPU mesh modules now exist. There is still no GPU mesh upload path, depth pipeline, or 3D scene renderer.
 - The build script compiles `src/*.c` and Vulkan shaders with `glslc`; new source files are included by the wildcard, while shader compilation steps must be added explicitly.
 
 ## Change control
