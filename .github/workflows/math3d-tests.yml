@@ -1,4 +1,4 @@
-name: 3D math, camera, and mesh tests
+name: 3D math, camera, mesh, and GPU layout tests
 
 on:
   push:
@@ -25,3 +25,7 @@ jobs:
         run: |
           cc -std=c11 -Wall -Wextra -Werror -pedantic src/math3d.c src/mesh3d.c tests/mesh3d_test.c -lm -o mesh3d_test
           ./mesh3d_test
+      - name: Compile and run GPU mesh layout tests
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -pedantic src/gpu_mesh_layout.c tests/gpu_mesh_layout_test.c -o gpu_mesh_layout_test
+          ./gpu_mesh_layout_test
