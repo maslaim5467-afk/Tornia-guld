@@ -6,8 +6,9 @@
 - **Implemented:** portable `TgCamera3D`; CPU-side `TgMesh3D`; checked combined-buffer layout calculator; opaque Vulkan GPU mesh upload resource in `src/gpu_mesh_vk.h/.c`.
 - **CI:** the layout/math/camera/mesh suite passed on commit `bdd38f321d44f1e5601aade6225ee8c248ddd24e`; the Android `arm64-v8a` APK build, including compilation of the Vulkan upload module, also passed on that source commit (run `44790490617`).
 - **Backend contract:** ownership, staging/direct-memory paths, barriers, fence synchronization, and lifecycle rules are documented in [`3D_GPU_RESOURCE_DESIGN.md`](3D_GPU_RESOURCE_DESIGN.md).
-- **Integration/runtime validation:** the upload module is not yet called by `main.c`; no on-device GPU upload, 3D draw, or camera validation has been performed.
-- **Not implemented yet:** scene-owned sea setup, renderer integration, Vulkan 3D graphics pipeline, depth attachment, and visible sea test scene.
+- **Integration:** `TgSeaTestScene` now owns a 20 x 20 XZ CPU plane and opaque GPU mesh. `main.c` invokes the upload during Vulkan startup and releases the GPU mesh after device idle, before device destruction.
+- **Runtime validation:** CI compiles the integrated path, but execution on a physical Android GPU has not yet been observed. No 3D draw or camera validation has been performed.
+- **Not implemented yet:** Vulkan 3D graphics pipeline, depth attachment, and visible sea draw.
 - **Target branch:** `feature/3d-renderer-foundation`.
 - **Compatibility rule:** the existing 2D path remains operational and is not replaced.
 
@@ -61,7 +62,7 @@ Owns 3D-specific camera state, mesh data, 3D pipelines, depth state, and 3D draw
 - `src/gpu_mesh_layout.h/.c`: implemented platform-independent combined vertex/index buffer layout calculation with overflow checks and host tests.
 - `src/gpu_mesh_vk.h/.c`: implemented opaque Vulkan GPU mesh allocation/upload/destruction. It owns the destination buffer and memory; staging resources, transient command pool, and upload fence are temporary. The current application does not call this module yet.
 - `src/renderer3d.h/.c`: proposed 3D renderer lifecycle and recording of 3D draw commands.
-- `src/sea_test_scene.h/.c`: proposed finite test-plane dimensions, transform, and simple material parameters. This is experiment content, not a general engine subsystem.
+- `src/sea_test_scene.h/.c`: implemented owner for the finite 20 x 20 test plane, borrowed CPU mesh arrays, and opaque uploaded GPU mesh. It creates/destroys the GPU resource at the device lifecycle boundary; it does not own Vulkan device/queue objects or issue frame draws. This is experiment content, not a general engine subsystem.
 
 These are proposed files, not existing implementation.
 
@@ -105,10 +106,10 @@ The dimensions and camera are deterministic starting values for the prototype an
 ## Implementation sequence
 
 1. **Architecture and baseline review:** completed as documentation; module boundaries, frame contract, and the smallest sea-scene contract are recorded. No 2D behavior changes were made.
-2. **Camera and mesh foundations:** implemented `TgCamera3D` and its host tests. Implemented `TgMesh3D` as a non-owning CPU mesh view with finite-position/index/triangle validation, AABB calculation, and a four-vertex/six-index XZ plane generator. Strict-warning CI tests for mesh are added and awaiting execution. No Vulkan rendering claim.
-3. **Backend integration design:** current Vulkan setup inspected; GPU mesh ownership, combined vertex/index buffer layout, staging upload, fence synchronization, and Android/device lifecycle are documented in [`3D_GPU_RESOURCE_DESIGN.md`](3D_GPU_RESOURCE_DESIGN.md). Depth attachment/render-pass selection remains part of the implementation step.
-4. **Minimal 3D pass:** pending; implement a separate 3D pipeline and render the flat finite plane.
-5. **Android validation:** build and run on the target device; capture evidence and record frame time, FPS, and memory.
+2. **Camera and mesh foundations:** implemented and covered by passing strict-warning CI tests. `TgMesh3D` validates finite positions, indices, triangles, and AABB bounds, and writes the four-vertex/six-index XZ plane.
+3. **GPU mesh upload and scene ownership:** implemented. The checked buffer-layout module and opaque Vulkan upload resource are integrated with `TgSeaTestScene`; `main.c` invokes upload after device/queue initialization and releases the mesh before device destruction. Passing CI confirms compilation and portable tests, not successful execution on a physical GPU.
+4. **Device runtime validation:** pending; install/run the APK on a physical Android device and verify the upload log/result, selected memory path, and clean lifecycle behavior.
+5. **Minimal 3D pass:** pending; implement a separate 3D pipeline and depth attachment, then render the flat finite plane.
 6. **2D/3D composition:** only after the standalone 3D pass is stable, render a representative 2D layer in the same frame and verify no regression.
 7. **Progressive quality stages:** add waves, lighting, and higher detail separately, preserving a benchmark baseline at each step.
 
