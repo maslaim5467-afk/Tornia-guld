@@ -22,6 +22,7 @@ typedef struct {
  struct android_app *app; VkInstance in; VkSurfaceKHR surface; VkPhysicalDevice gpu; VkDevice dev; VkQueue q;
  uint32_t qf,w,h,n; VkSwapchainKHR sw; VkFormat fmt; VkImage *imgs; VkImageView *views; VkFramebuffer *fb;
  VkRenderPass rp; VkPipelineLayout layout; VkPipeline pipe; VkCommandPool pool; VkCommandBuffer *cmd;
+ VkImage depth_image; VkDeviceMemory depth_memory; VkImageView depth_view; VkFormat depth_format;
  VkBuffer vb; VkDeviceMemory vm; VkSemaphore semA,semB; VkFence fence;
  VkImage atlas; VkDeviceMemory atlas_mem; VkImageView atlas_view; VkSampler atlas_sampler;
  VkImage sprite_image; VkDeviceMemory sprite_memory; VkImageView sprite_view; VkSampler sprite_sampler;
@@ -442,6 +443,116 @@ static int initialize_2d_world(E*e){
  LOG("2D world resources initialized on demand");
  return 0;
 }
+static int create_depth_target_probe(E*e){
+ static const VkFormat candidates[]={
+  VK_FORMAT_D32_SFLOAT,
+  VK_FORMAT_D32_SFLOAT_S8_UINT,
+  VK_FORMAT_D24_UNORM_S8_UINT,
+  VK_FORMAT_D16_UNORM
+ };
+ VkFormatProperties properties;
+ VkImageCreateInfo image_info={
+  .sType=VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+  .imageType=VK_IMAGE_TYPE_2D,
+  .extent={0u,0u,1u},
+  .mipLevels=1u,
+  .arrayLayers=1u,
+  .samples=VK_SAMPLE_COUNT_1_BIT,
+  .tiling=VK_IMAGE_TILING_OPTIMAL,
+  .usage=VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+  .sharingMode=VK_SHARING_MODE_EXCLUSIVE,
+  .initialLayout=VK_IMAGE_LAYOUT_UNDEFINED
+ };
+ VkMemoryRequirements requirements;
+ VkMemoryAllocateInfo allocation={.sType=VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+ VkImageViewCreateInfo view={.sType=VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+ uint32_t type=UINT32_MAX,i;
+ VkResult result=VK_ERROR_INITIALIZATION_FAILED;
+
+ if(e==NULL||e->gpu==VK_NULL_HANDLE||e->dev==VK_NULL_HANDLE||
+    e->w==0u||e->h==0u){
+  ERR("Depth target probe skipped: invalid device or surface extent");
+  return -1;
+ }
+ if(e->depth_image!=VK_NULL_HANDLE||e->depth_memory!=VK_NULL_HANDLE||
+    e->depth_view!=VK_NULL_HANDLE){
+  ERR("Depth target probe skipped: handles were not empty");
+  return -1;
+ }
+
+ for(i=0u;i<(uint32_t)(sizeof(candidates)/sizeof(candidates[0]));++i){
+  vkGetPhysicalDeviceFormatProperties(e->gpu,candidates[i],&properties);
+  if((properties.optimalTilingFeatures&
+      VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)!=0u){
+   e->depth_format=candidates[i];
+   break;
+  }
+ }
+ if(i==(uint32_t)(sizeof(candidates)/sizeof(candidates[0]))){
+  ERR("Depth target probe: no supported depth attachment format");
+  return -1;
+ }
+
+ image_info.format=e->depth_format;
+ image_info.extent.width=e->w;
+ image_info.extent.height=e->h;
+ LOG("Depth target probe: creating image format=%d extent=%ux%u",
+     (int)e->depth_format,e->w,e->h);
+ result=vkCreateImage(e->dev,&image_info,NULL,&e->depth_image);
+ if(result!=VK_SUCCESS)goto failed;
+
+ vkGetImageMemoryRequirements(e->dev,e->depth_image,&requirements);
+ type=memtype(e,requirements.memoryTypeBits,
+              VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+ if(type==UINT32_MAX)type=memtype(e,requirements.memoryTypeBits,0u);
+ if(type==UINT32_MAX){
+  result=VK_ERROR_FEATURE_NOT_PRESENT;
+  goto failed;
+ }
+
+ allocation.allocationSize=requirements.size;
+ allocation.memoryTypeIndex=type;
+ result=vkAllocateMemory(e->dev,&allocation,NULL,&e->depth_memory);
+ if(result!=VK_SUCCESS)goto failed;
+
+ result=vkBindImageMemory(e->dev,e->depth_image,e->depth_memory,0u);
+ if(result!=VK_SUCCESS)goto failed;
+
+ view.image=e->depth_image;
+ view.viewType=VK_IMAGE_VIEW_TYPE_2D;
+ view.format=e->depth_format;
+ view.subresourceRange.aspectMask=VK_IMAGE_ASPECT_DEPTH_BIT;
+ if(e->depth_format==VK_FORMAT_D32_SFLOAT_S8_UINT||
+    e->depth_format==VK_FORMAT_D24_UNORM_S8_UINT){
+  view.subresourceRange.aspectMask|=VK_IMAGE_ASPECT_STENCIL_BIT;
+ }
+ view.subresourceRange.levelCount=1u;
+ view.subresourceRange.layerCount=1u;
+ result=vkCreateImageView(e->dev,&view,NULL,&e->depth_view);
+ if(result!=VK_SUCCESS)goto failed;
+
+ LOG("Depth target probe ready: format=%d extent=%ux%u; not attached to render pass",
+     (int)e->depth_format,e->w,e->h);
+ return 0;
+
+failed:
+ ERR("Depth target probe failed: VkResult=%d",(int)result);
+ if(e->depth_view!=VK_NULL_HANDLE){
+  vkDestroyImageView(e->dev,e->depth_view,NULL);
+  e->depth_view=VK_NULL_HANDLE;
+ }
+ if(e->depth_image!=VK_NULL_HANDLE){
+  vkDestroyImage(e->dev,e->depth_image,NULL);
+  e->depth_image=VK_NULL_HANDLE;
+ }
+ if(e->depth_memory!=VK_NULL_HANDLE){
+  vkFreeMemory(e->dev,e->depth_memory,NULL);
+  e->depth_memory=VK_NULL_HANDLE;
+ }
+ e->depth_format=VK_FORMAT_UNDEFINED;
+ return -1;
+}
+
 static int setup(E*e){
  const char*ie[]={VK_KHR_SURFACE_EXTENSION_NAME,VK_KHR_ANDROID_SURFACE_EXTENSION_NAME};VkApplicationInfo ai={.sType=VK_STRUCTURE_TYPE_APPLICATION_INFO,.pApplicationName="TORNIA_GULD",.apiVersion=VK_API_VERSION_1_0};
  VkInstanceCreateInfo ii={.sType=VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,.pApplicationInfo=&ai,.enabledExtensionCount=2,.ppEnabledExtensionNames=ie};if(vkCreateInstance(&ii,0,&e->in))return -1;
@@ -452,6 +563,7 @@ static int setup(E*e){
  VkSurfaceCapabilitiesKHR cp;vkGetPhysicalDeviceSurfaceCapabilitiesKHR(e->gpu,e->surface,&cp);uint32_t nf=0;vkGetPhysicalDeviceSurfaceFormatsKHR(e->gpu,e->surface,&nf,0);VkSurfaceFormatKHR*fs=malloc(nf*sizeof(*fs));vkGetPhysicalDeviceSurfaceFormatsKHR(e->gpu,e->surface,&nf,fs);VkSurfaceFormatKHR sf=fs[0];for(uint32_t i=0;i<nf;i++)if(fs[i].format==VK_FORMAT_R8G8B8A8_UNORM||fs[i].format==VK_FORMAT_B8G8R8A8_UNORM){sf=fs[i];break;}free(fs);e->fmt=sf.format;
  VkSurfaceTransformFlagBitsKHR chosenTransform=(cp.supportedTransforms&VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)?VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR:cp.currentTransform;
  e->w=cp.currentExtent.width;e->h=cp.currentExtent.height;
+  if(create_depth_target_probe(e)!=0)ERR("Depth target probe unavailable; continuing with the 2D-only renderer");
  LOG("Surface extent=%ux%u native=%dx%d currentTransform=0x%x chosenTransform=0x%x supported=0x%x",e->w,e->h,ANativeWindow_getWidth(e->app->window),ANativeWindow_getHeight(e->app->window),cp.currentTransform,chosenTransform,cp.supportedTransforms);
  uint32_t ni=cp.minImageCount+1;if(cp.maxImageCount&&ni>cp.maxImageCount)ni=cp.maxImageCount;VkSwapchainCreateInfoKHR sw={.sType=VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,.surface=e->surface,.minImageCount=ni,.imageFormat=e->fmt,.imageColorSpace=sf.colorSpace,.imageExtent=cp.currentExtent,.imageArrayLayers=1,.imageUsage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,.imageSharingMode=VK_SHARING_MODE_EXCLUSIVE,.preTransform=chosenTransform,.compositeAlpha=VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,.presentMode=VK_PRESENT_MODE_FIFO_KHR,.clipped=VK_TRUE};if(vkCreateSwapchainKHR(e->dev,&sw,0,&e->sw))return -1;
  vkGetSwapchainImagesKHR(e->dev,e->sw,&e->n,0);e->imgs=malloc(e->n*sizeof(VkImage));vkGetSwapchainImagesKHR(e->dev,e->sw,&e->n,e->imgs);e->views=calloc(e->n,sizeof(VkImageView));e->fb=calloc(e->n,sizeof(VkFramebuffer));e->cmd=calloc(e->n,sizeof(VkCommandBuffer));
@@ -491,7 +603,7 @@ static void frame(E*e){
                        (float)e->w,(float)e->h,(float)delta_ms/1000.0f,8.0f);
   }
  }vkWaitForFences(e->dev,1,&e->fence,VK_TRUE,UINT64_MAX);uint32_t ix;if(vkAcquireNextImageKHR(e->dev,e->sw,UINT64_MAX,e->semA,0,&ix)!=VK_SUCCESS)return;if(e->scene==1)draw_world(e);else if(e->scene==2)draw_building(e);else menu(e);void*m;if(vkMapMemory(e->dev,e->vm,0,e->nv*sizeof(V),0,&m))return;memcpy(m,e->v,e->nv*sizeof(V));vkUnmapMemory(e->dev,e->vm);VkCommandBuffer c=e->cmd[ix];vkResetCommandBuffer(c,0);VkCommandBufferBeginInfo bi={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};vkBeginCommandBuffer(c,&bi);VkClearValue cl={.color={{.035f,.052f,.07f,1}}};VkRenderPassBeginInfo ri={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,.renderPass=e->rp,.framebuffer=e->fb[ix],.renderArea={{0,0},{e->w,e->h}},.clearValueCount=1,.pClearValues=&cl};vkCmdBeginRenderPass(c,&ri,VK_SUBPASS_CONTENTS_INLINE);VkViewport vp={0,0,(float)e->w,(float)e->h,0,1};VkRect2D sc={{0,0},{e->w,e->h}};vkCmdSetViewport(c,0,1,&vp);vkCmdSetScissor(c,0,1,&sc);vkCmdBindPipeline(c,VK_PIPELINE_BIND_POINT_GRAPHICS,e->pipe);/* The current menu/building shaders are untextured; texture descriptors are created only when the texture renderer is initialized. */VkDeviceSize off=0;vkCmdBindVertexBuffers(c,0,1,&e->vb,&off);vkCmdDraw(c,e->nv,1,0,0);vkCmdEndRenderPass(c);vkEndCommandBuffer(c);vkResetFences(e->dev,1,&e->fence);VkPipelineStageFlags wait=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;VkSubmitInfo si={.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semA,.pWaitDstStageMask=&wait,.commandBufferCount=1,.pCommandBuffers=&c,.signalSemaphoreCount=1,.pSignalSemaphores=&e->semB};if(vkQueueSubmit(e->q,1,&si,e->fence))return;VkPresentInfoKHR pr={.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semB,.swapchainCount=1,.pSwapchains=&e->sw,.pImageIndices=&ix};vkQueuePresentKHR(e->q,&pr);}
-static void closevk(E*e){if(e->dev)vkDeviceWaitIdle(e->dev);if(e->dev){if(e->fence)vkDestroyFence(e->dev,e->fence,0);if(e->sprite_sampler)vkDestroySampler(e->dev,e->sprite_sampler,0);if(e->sprite_view)vkDestroyImageView(e->dev,e->sprite_view,0);if(e->sprite_image)vkDestroyImage(e->dev,e->sprite_image,0);if(e->sprite_memory)vkFreeMemory(e->dev,e->sprite_memory,0);if(e->descriptor_pool)vkDestroyDescriptorPool(e->dev,e->descriptor_pool,0);if(e->atlas_sampler)vkDestroySampler(e->dev,e->atlas_sampler,0);if(e->atlas_view)vkDestroyImageView(e->dev,e->atlas_view,0);if(e->atlas)vkDestroyImage(e->dev,e->atlas,0);if(e->atlas_mem)vkFreeMemory(e->dev,e->atlas_mem,0);if(e->descriptor_layout)vkDestroyDescriptorSetLayout(e->dev,e->descriptor_layout,0);if(e->semA)vkDestroySemaphore(e->dev,e->semA,0);if(e->semB)vkDestroySemaphore(e->dev,e->semB,0);if(e->vb)vkDestroyBuffer(e->dev,e->vb,0);if(e->vm)vkFreeMemory(e->dev,e->vm,0);if(e->pool)vkDestroyCommandPool(e->dev,e->pool,0);for(uint32_t i=0;i<e->n;i++){if(e->fb&&e->fb[i])vkDestroyFramebuffer(e->dev,e->fb[i],0);if(e->views&&e->views[i])vkDestroyImageView(e->dev,e->views[i],0);}if(e->pipe)vkDestroyPipeline(e->dev,e->pipe,0);if(e->layout)vkDestroyPipelineLayout(e->dev,e->layout,0);if(e->rp)vkDestroyRenderPass(e->dev,e->rp,0);if(e->sw)vkDestroySwapchainKHR(e->dev,e->sw,0);vkDestroyDevice(e->dev,0);}if(e->surface&&e->in)vkDestroySurfaceKHR(e->in,e->surface,0);if(e->in)vkDestroyInstance(e->in,0);free(e->imgs);free(e->views);free(e->fb);free(e->cmd);e->ready=0;memset(&e->in,0,sizeof(e->in));e->dev=0;e->surface=0;}
+static void closevk(E*e){if(e->dev)vkDeviceWaitIdle(e->dev);if(e->dev){if(e->fence)vkDestroyFence(e->dev,e->fence,0);if(e->sprite_sampler)vkDestroySampler(e->dev,e->sprite_sampler,0);if(e->sprite_view)vkDestroyImageView(e->dev,e->sprite_view,0);if(e->sprite_image)vkDestroyImage(e->dev,e->sprite_image,0);if(e->sprite_memory)vkFreeMemory(e->dev,e->sprite_memory,0);if(e->descriptor_pool)vkDestroyDescriptorPool(e->dev,e->descriptor_pool,0);if(e->atlas_sampler)vkDestroySampler(e->dev,e->atlas_sampler,0);if(e->atlas_view)vkDestroyImageView(e->dev,e->atlas_view,0);if(e->atlas)vkDestroyImage(e->dev,e->atlas,0);if(e->atlas_mem)vkFreeMemory(e->dev,e->atlas_mem,0);if(e->descriptor_layout)vkDestroyDescriptorSetLayout(e->dev,e->descriptor_layout,0);if(e->semA)vkDestroySemaphore(e->dev,e->semA,0);if(e->semB)vkDestroySemaphore(e->dev,e->semB,0);if(e->vb)vkDestroyBuffer(e->dev,e->vb,0);if(e->vm)vkFreeMemory(e->dev,e->vm,0);if(e->pool)vkDestroyCommandPool(e->dev,e->pool,0);for(uint32_t i=0;i<e->n;i++){if(e->fb&&e->fb[i])vkDestroyFramebuffer(e->dev,e->fb[i],0);if(e->views&&e->views[i])vkDestroyImageView(e->dev,e->views[i],0);}if(e->depth_view){vkDestroyImageView(e->dev,e->depth_view,0);e->depth_view=VK_NULL_HANDLE;}if(e->depth_image){vkDestroyImage(e->dev,e->depth_image,0);e->depth_image=VK_NULL_HANDLE;}if(e->depth_memory){vkFreeMemory(e->dev,e->depth_memory,0);e->depth_memory=VK_NULL_HANDLE;}e->depth_format=VK_FORMAT_UNDEFINED;if(e->pipe)vkDestroyPipeline(e->dev,e->pipe,0);if(e->layout)vkDestroyPipelineLayout(e->dev,e->layout,0);if(e->rp)vkDestroyRenderPass(e->dev,e->rp,0);if(e->sw)vkDestroySwapchainKHR(e->dev,e->sw,0);vkDestroyDevice(e->dev,0);}if(e->surface&&e->in)vkDestroySurfaceKHR(e->in,e->surface,0);if(e->in)vkDestroyInstance(e->in,0);free(e->imgs);free(e->views);free(e->fb);free(e->cmd);e->ready=0;memset(&e->in,0,sizeof(e->in));e->dev=0;e->surface=0;}
 static int32_t input(struct android_app*a,AInputEvent*ev){
  E*e=a->userData;
  if(!e->ready||AInputEvent_getType(ev)!=AINPUT_EVENT_TYPE_MOTION)return 0;
