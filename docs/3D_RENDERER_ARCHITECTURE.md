@@ -4,8 +4,9 @@
 
 - **Architecture proposal:** initial baseline for the progressive bounded-sea experiment.
 - **Implemented:** portable `TgCamera3D` camera state and view/projection update API; CPU-side `TgMesh3D` borrowed vertex/index data, validation, bounds calculation, and XZ plane geometry writer in `src/mesh3d.h/.c`. Host-side tests cover both modules.
-- **CI:** the dedicated math/camera workflow passed on commit `79cca117c39ab29f9d00019df29bfd3b74d309b9`; the mesh test has now been added to that workflow and is awaiting its run.
-- **Pending:** Android APK build workflow is still running; no on-device camera or rendering validation has been performed.
+- **CI:** math, camera, and mesh tests passed in workflow run `44789001710` on commit `f8dd2371243aa00dd5cce83a3e13288ba2ab6fdf`; Android APK build for `arm64-v8a` passed in run `44789001715`.
+- **Backend design:** current Vulkan code was reviewed and the GPU mesh ownership, combined-buffer layout, staging upload, synchronization, and lifecycle contract are documented in [`3D_GPU_RESOURCE_DESIGN.md`](3D_GPU_RESOURCE_DESIGN.md).
+- **Runtime validation:** no on-device 3D camera or rendering validation has been performed.
 - **Not implemented yet:** Vulkan 3D pipeline, depth attachment, GPU mesh upload, `renderer3d`, and sea test scene.
 - **Target branch:** `feature/3d-renderer-foundation`.
 - **Compatibility rule:** the existing 2D path remains operational and is not replaced.
@@ -91,7 +92,7 @@ The dimensions and camera are deterministic starting values for the prototype an
 
 ## GPU resource and lifecycle rules
 
-- Every Vulkan resource has one documented owner and a matching create/destroy path.
+- Every Vulkan resource has one documented owner and a matching create/destroy path. The mesh-specific ownership and upload contract is defined in [`3D_GPU_RESOURCE_DESIGN.md`](3D_GPU_RESOURCE_DESIGN.md).
 - Resource creation and destruction occur only while the Vulkan device is valid; teardown waits for relevant GPU work before releasing resources.
 - Handle partial initialization failures and clean up resources already created.
 - Recreate swapchain-dependent resources after surface/swapchain changes.
@@ -103,8 +104,8 @@ The dimensions and camera are deterministic starting values for the prototype an
 
 1. **Architecture and baseline review:** completed as documentation; module boundaries, frame contract, and the smallest sea-scene contract are recorded. No 2D behavior changes were made.
 2. **Camera and mesh foundations:** implemented `TgCamera3D` and its host tests. Implemented `TgMesh3D` as a non-owning CPU mesh view with finite-position/index/triangle validation, AABB calculation, and a four-vertex/six-index XZ plane generator. Strict-warning CI tests for mesh are added and awaiting execution. No Vulkan rendering claim.
-3. **Backend integration design:** inspect the current monolithic Vulkan setup, select depth attachment/render-pass strategy, and define resource ownership.
-4. **Minimal 3D pass:** implement a separate 3D pipeline and render the flat finite plane.
+3. **Backend integration design:** current Vulkan setup inspected; GPU mesh ownership, combined vertex/index buffer layout, staging upload, fence synchronization, and Android/device lifecycle are documented in [`3D_GPU_RESOURCE_DESIGN.md`](3D_GPU_RESOURCE_DESIGN.md). Depth attachment/render-pass selection remains part of the implementation step.
+4. **Minimal 3D pass:** pending; implement a separate 3D pipeline and render the flat finite plane.
 5. **Android validation:** build and run on the target device; capture evidence and record frame time, FPS, and memory.
 6. **2D/3D composition:** only after the standalone 3D pass is stable, render a representative 2D layer in the same frame and verify no regression.
 7. **Progressive quality stages:** add waves, lighting, and higher detail separately, preserving a benchmark baseline at each step.
