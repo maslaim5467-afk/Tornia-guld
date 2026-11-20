@@ -8,6 +8,9 @@
 #include "world.h"
 #include "animation.h"
 #include "player.h"
+#include "camera3d.h"
+#include "sea_test_scene.h"
+#include "gpu_mesh_vk.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -23,6 +26,9 @@ typedef struct {
  uint32_t qf,w,h,n; VkSwapchainKHR sw; VkFormat fmt; VkImage *imgs; VkImageView *views; VkFramebuffer *fb;
  VkRenderPass rp; VkPipelineLayout layout; VkPipeline pipe; VkCommandPool pool; VkCommandBuffer *cmd;
  VkImage depth_image; VkDeviceMemory depth_memory; VkImageView depth_view; VkFormat depth_format;
+ TgSeaTestScene *sea_scene; TgCamera3D sea_camera;
+ VkPipeline sea_pipe; VkPipelineLayout sea_layout;
+ int sea_renderer_attempted,sea_renderer_ready,sea_draw_logged;
  VkBuffer vb; VkDeviceMemory vm; VkSemaphore semA,semB; VkFence fence;
  VkImage atlas; VkDeviceMemory atlas_mem; VkImageView atlas_view; VkSampler atlas_sampler;
  VkImage sprite_image; VkDeviceMemory sprite_memory; VkImageView sprite_view; VkSampler sprite_sampler;
@@ -264,7 +270,22 @@ static void draw_building(E*e){
  label(e,"IN PROGRESS",cx-66,e->h*.56f,2,.72f,.78f,.82f);
 }
 static uint32_t memtype(E*e,uint32_t mask,VkMemoryPropertyFlags flags){VkPhysicalDeviceMemoryProperties p;vkGetPhysicalDeviceMemoryProperties(e->gpu,&p);for(uint32_t i=0;i<p.memoryTypeCount;i++)if((mask&(1u<<i))&&(p.memoryTypes[i].propertyFlags&flags)==flags)return i;return UINT32_MAX;}
-static VkShaderModule shader(E*e,const char*path){AAsset*a=AAssetManager_open(e->app->activity->assetManager,path,AASSET_MODE_BUFFER);if(!a)return 0;size_t n=AAsset_getLength(a);uint32_t*p=malloc(n);int got=AAsset_read(a,p,n);AAsset_close(a);if(got!=(int)n){free(p);return 0;}VkShaderModuleCreateInfo ci={.sType=VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,.codeSize=n,.pCode=p};VkShaderModule m=0;vkCreateShaderModule(e->dev,&ci,0,&m);free(p);return m;}
+static VkShaderModule shader(E*e,const char*path){
+ AAsset*a=AAssetManager_open(e->app->activity->assetManager,path,AASSET_MODE_BUFFER);
+ if(!a){ERR("Shader asset not found: %s",path);return VK_NULL_HANDLE;}
+ off_t length=AAsset_getLength(a);
+ if(length<=0||(length%4)!=0||length>4*1024*1024){
+  ERR("Invalid shader asset size: %s (%lld bytes)",path,(long long)length);AAsset_close(a);return VK_NULL_HANDLE;
+ }
+ uint32_t*p=malloc((size_t)length);
+ if(!p){ERR("Shader allocation failed: %s",path);AAsset_close(a);return VK_NULL_HANDLE;}
+ int got=AAsset_read(a,p,(size_t)length);AAsset_close(a);
+ if(got!=(int)length){ERR("Short shader read: %s (%d/%lld)",path,got,(long long)length);free(p);return VK_NULL_HANDLE;}
+ VkShaderModuleCreateInfo ci={.sType=VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,.codeSize=(size_t)length,.pCode=p};
+ VkShaderModule module=VK_NULL_HANDLE;VkResult vr=vkCreateShaderModule(e->dev,&ci,NULL,&module);free(p);
+ if(vr!=VK_SUCCESS){ERR("vkCreateShaderModule failed for %s: VkResult=%d",path,(int)vr);return VK_NULL_HANDLE;}
+ LOG("Shader module loaded: %s",path);return module;
+}
 #define ATLAS_SIDE 1024
 #define ATLAS_CELL 256
 static int decode_asset_rgba(E*e,const char*path,uint8_t*out){
@@ -553,6 +574,83 @@ failed:
  return -1;
 }
 
+
+static int create_sea_pipeline(E*e){
+ VkShaderModule vs=VK_NULL_HANDLE,fs=VK_NULL_HANDLE;
+ VkPushConstantRange range={.stageFlags=VK_SHADER_STAGE_VERTEX_BIT,.offset=0,.size=(uint32_t)sizeof(TgMat4)};
+ VkPipelineLayoutCreateInfo layout_ci={.sType=VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,.pushConstantRangeCount=1,.pPushConstantRanges=&range};
+ VkPipelineShaderStageCreateInfo stages[2];
+ VkVertexInputBindingDescription binding={.binding=0,.stride=(uint32_t)sizeof(TgMeshVertex3D),.inputRate=VK_VERTEX_INPUT_RATE_VERTEX};
+ VkVertexInputAttributeDescription attribute={.location=0,.binding=0,.format=VK_FORMAT_R32G32B32_SFLOAT,.offset=0};
+ VkPipelineVertexInputStateCreateInfo vertex={.sType=VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,.vertexBindingDescriptionCount=1,.pVertexBindingDescriptions=&binding,.vertexAttributeDescriptionCount=1,.pVertexAttributeDescriptions=&attribute};
+ VkPipelineInputAssemblyStateCreateInfo assembly={.sType=VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,.topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST};
+ VkPipelineViewportStateCreateInfo viewport={.sType=VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,.viewportCount=1,.scissorCount=1};
+ VkPipelineRasterizationStateCreateInfo raster={.sType=VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,.polygonMode=VK_POLYGON_MODE_FILL,.cullMode=VK_CULL_MODE_NONE,.frontFace=VK_FRONT_FACE_COUNTER_CLOCKWISE,.lineWidth=1.0f};
+ VkPipelineMultisampleStateCreateInfo ms={.sType=VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT};
+ VkPipelineColorBlendAttachmentState ba={.blendEnable=VK_FALSE,.colorWriteMask=VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT};
+ VkPipelineColorBlendStateCreateInfo blend={.sType=VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,.attachmentCount=1,.pAttachments=&ba};
+ VkDynamicState dyns[]={VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR};
+ VkPipelineDynamicStateCreateInfo dynamic={.sType=VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,.dynamicStateCount=2,.pDynamicStates=dyns};
+ VkGraphicsPipelineCreateInfo pi={.sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,.stageCount=2,.pStages=stages,.pVertexInputState=&vertex,.pInputAssemblyState=&assembly,.pViewportState=&viewport,.pRasterizationState=&raster,.pMultisampleState=&ms,.pColorBlendState=&blend,.pDynamicState=&dynamic,.layout=VK_NULL_HANDLE,.renderPass=e->rp,.subpass=0,.basePipelineIndex=-1};
+ VkResult vr=VK_ERROR_INITIALIZATION_FAILED;
+ LOG("SEA_STAGE pipeline: loading shaders");
+ vs=shader(e,"shaders/sea.vert.spv");fs=shader(e,"shaders/sea.frag.spv");
+ if(!vs||!fs)goto done;
+ stages[0]=(VkPipelineShaderStageCreateInfo){.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_VERTEX_BIT,.module=vs,.pName="main"};
+ stages[1]=(VkPipelineShaderStageCreateInfo){.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_FRAGMENT_BIT,.module=fs,.pName="main"};
+ LOG("SEA_STAGE pipeline: creating layout");
+ vr=vkCreatePipelineLayout(e->dev,&layout_ci,NULL,&e->sea_layout);
+ if(vr!=VK_SUCCESS){ERR("SEA_STAGE pipeline-layout failed: VkResult=%d",(int)vr);goto done;}
+ pi.layout=e->sea_layout;
+ LOG("SEA_STAGE pipeline: creating graphics pipeline");
+ vr=vkCreateGraphicsPipelines(e->dev,VK_NULL_HANDLE,1,&pi,NULL,&e->sea_pipe);
+ if(vr!=VK_SUCCESS){ERR("SEA_STAGE graphics-pipeline failed: VkResult=%d",(int)vr);goto done;}
+ LOG("SEA_STAGE pipeline: ready (color-only pass; depth testing deferred)");
+done:
+ if(vs)vkDestroyShaderModule(e->dev,vs,NULL);if(fs)vkDestroyShaderModule(e->dev,fs,NULL);
+ if(vr!=VK_SUCCESS){
+  if(e->sea_pipe){vkDestroyPipeline(e->dev,e->sea_pipe,NULL);e->sea_pipe=VK_NULL_HANDLE;}
+  if(e->sea_layout){vkDestroyPipelineLayout(e->dev,e->sea_layout,NULL);e->sea_layout=VK_NULL_HANDLE;}
+  return -1;
+ }
+ return 0;
+}
+
+static int initialize_sea_renderer(E*e){
+ VkResult upload_result=VK_ERROR_INITIALIZATION_FAILED;const TgGpuMeshVk*mesh;
+ if(!e||e->dev==VK_NULL_HANDLE||e->q==VK_NULL_HANDLE||e->rp==VK_NULL_HANDLE||e->w==0u||e->h==0u){
+  ERR("SEA_STAGE activation rejected: incomplete Vulkan context");return -1;
+ }
+ LOG("SEA_STAGE depth-probe begin; extent=%ux%u",e->w,e->h);
+ if(create_depth_target_probe(e)==0)LOG("SEA_STAGE depth-probe ready (diagnostic-only for this flat plane)");
+ else ERR("SEA_STAGE depth-probe unavailable; continuing without depth");
+ LOG("SEA_STAGE mesh-upload begin; bounded plane=20x20");
+ if(tg_sea_test_scene_create(e->gpu,e->dev,e->q,e->qf,&e->sea_scene,&upload_result)!=0){
+  ERR("SEA_STAGE mesh-upload failed: VkResult=%d",(int)upload_result);goto failed;
+ }
+ mesh=tg_sea_test_scene_gpu_mesh(e->sea_scene);
+ if(!mesh||tg_gpu_mesh_vk_buffer(mesh)==VK_NULL_HANDLE||tg_gpu_mesh_vk_index_count(mesh)==0u){
+  ERR("SEA_STAGE mesh-upload returned invalid GPU handles");goto failed;
+ }
+ LOG("SEA_STAGE mesh-upload ready; indices=%u path=%s memory-flags=0x%x",
+     tg_gpu_mesh_vk_index_count(mesh),tg_gpu_mesh_vk_used_staging(mesh)==VK_TRUE?"staging":"direct",
+     (unsigned)tg_gpu_mesh_vk_memory_properties(mesh));
+ LOG("SEA_STAGE camera initialization begin");
+ if(tg_camera3d_init(&e->sea_camera,tg_vec3(0.0f,8.0f,12.0f),tg_vec3(0.0f,0.0f,0.0f),
+                     tg_vec3(0.0f,1.0f,0.0f),1.04719755f,(float)e->w/(float)e->h,0.1f,100.0f)!=0){
+  ERR("SEA_STAGE camera initialization failed");goto failed;
+ }
+ if(create_sea_pipeline(e)!=0)goto failed;
+ e->sea_renderer_ready=1;
+ LOG("SEA_STAGE READY: flat blue water plane is enabled for BUILDING screen");
+ return 0;
+failed:
+ if(e->sea_pipe){vkDestroyPipeline(e->dev,e->sea_pipe,NULL);e->sea_pipe=VK_NULL_HANDLE;}
+ if(e->sea_layout){vkDestroyPipelineLayout(e->dev,e->sea_layout,NULL);e->sea_layout=VK_NULL_HANDLE;}
+ if(e->sea_scene){tg_sea_test_scene_destroy(e->dev,e->sea_scene);e->sea_scene=NULL;}
+ e->sea_renderer_ready=0;return -1;
+}
+
 static int setup(E*e){
  const char*ie[]={VK_KHR_SURFACE_EXTENSION_NAME,VK_KHR_ANDROID_SURFACE_EXTENSION_NAME};VkApplicationInfo ai={.sType=VK_STRUCTURE_TYPE_APPLICATION_INFO,.pApplicationName="TORNIA_GULD",.apiVersion=VK_API_VERSION_1_0};
  VkInstanceCreateInfo ii={.sType=VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,.pApplicationInfo=&ai,.enabledExtensionCount=2,.ppEnabledExtensionNames=ie};if(vkCreateInstance(&ii,0,&e->in))return -1;
@@ -563,7 +661,6 @@ static int setup(E*e){
  VkSurfaceCapabilitiesKHR cp;vkGetPhysicalDeviceSurfaceCapabilitiesKHR(e->gpu,e->surface,&cp);uint32_t nf=0;vkGetPhysicalDeviceSurfaceFormatsKHR(e->gpu,e->surface,&nf,0);VkSurfaceFormatKHR*fs=malloc(nf*sizeof(*fs));vkGetPhysicalDeviceSurfaceFormatsKHR(e->gpu,e->surface,&nf,fs);VkSurfaceFormatKHR sf=fs[0];for(uint32_t i=0;i<nf;i++)if(fs[i].format==VK_FORMAT_R8G8B8A8_UNORM||fs[i].format==VK_FORMAT_B8G8R8A8_UNORM){sf=fs[i];break;}free(fs);e->fmt=sf.format;
  VkSurfaceTransformFlagBitsKHR chosenTransform=(cp.supportedTransforms&VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)?VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR:cp.currentTransform;
  e->w=cp.currentExtent.width;e->h=cp.currentExtent.height;
-  if(create_depth_target_probe(e)!=0)ERR("Depth target probe unavailable; continuing with the 2D-only renderer");
  LOG("Surface extent=%ux%u native=%dx%d currentTransform=0x%x chosenTransform=0x%x supported=0x%x",e->w,e->h,ANativeWindow_getWidth(e->app->window),ANativeWindow_getHeight(e->app->window),cp.currentTransform,chosenTransform,cp.supportedTransforms);
  uint32_t ni=cp.minImageCount+1;if(cp.maxImageCount&&ni>cp.maxImageCount)ni=cp.maxImageCount;VkSwapchainCreateInfoKHR sw={.sType=VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,.surface=e->surface,.minImageCount=ni,.imageFormat=e->fmt,.imageColorSpace=sf.colorSpace,.imageExtent=cp.currentExtent,.imageArrayLayers=1,.imageUsage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,.imageSharingMode=VK_SHARING_MODE_EXCLUSIVE,.preTransform=chosenTransform,.compositeAlpha=VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,.presentMode=VK_PRESENT_MODE_FIFO_KHR,.clipped=VK_TRUE};if(vkCreateSwapchainKHR(e->dev,&sw,0,&e->sw))return -1;
  vkGetSwapchainImagesKHR(e->dev,e->sw,&e->n,0);e->imgs=malloc(e->n*sizeof(VkImage));vkGetSwapchainImagesKHR(e->dev,e->sw,&e->n,e->imgs);e->views=calloc(e->n,sizeof(VkImageView));e->fb=calloc(e->n,sizeof(VkFramebuffer));e->cmd=calloc(e->n,sizeof(VkCommandBuffer));
@@ -581,8 +678,7 @@ static int setup(E*e){
 }
 static void frame(E*e){
  if(!e->ready)return;
- uint32_t delta_ms=0;
- struct timespec now;
+ uint32_t delta_ms=0;struct timespec now;
  if(clock_gettime(CLOCK_MONOTONIC,&now)==0){
   uint64_t ns=(uint64_t)now.tv_sec*1000000000ull+(uint64_t)now.tv_nsec;
   if(e->last_frame_ns){uint64_t delta=(ns-e->last_frame_ns)/1000000ull;if(delta>100u)delta=100u;delta_ms=(uint32_t)delta;}
@@ -593,17 +689,108 @@ static void frame(E*e){
   if(e->scene==1)player_update(&e->player,delta_ms,(float)WORLD_WIDTH*WORLD_TILE_SIZE,(float)WORLD_HEIGHT*WORLD_TILE_SIZE);
   if(e->sprite_ready){
    const char*clip=player_animation_name(&e->player);
-   if(animation_controller_update(&e->player_animation,&e->animations,
-                                  clip,player_animation_flip_x(&e->player),
-                                  delta_ms)!=0)
+   if(animation_controller_update(&e->player_animation,&e->animations,clip,player_animation_flip_x(&e->player),delta_ms)!=0)
     ERR("Unable to select player animation: %s",clip);
   }
-  if(e->camera_follow_enabled&&delta_ms){
-   world_camera_follow(&e->camera,e->player.x,e->player.y,.5f,.55f,
-                       (float)e->w,(float)e->h,(float)delta_ms/1000.0f,8.0f);
-  }
- }vkWaitForFences(e->dev,1,&e->fence,VK_TRUE,UINT64_MAX);uint32_t ix;if(vkAcquireNextImageKHR(e->dev,e->sw,UINT64_MAX,e->semA,0,&ix)!=VK_SUCCESS)return;if(e->scene==1)draw_world(e);else if(e->scene==2)draw_building(e);else menu(e);void*m;if(vkMapMemory(e->dev,e->vm,0,e->nv*sizeof(V),0,&m))return;memcpy(m,e->v,e->nv*sizeof(V));vkUnmapMemory(e->dev,e->vm);VkCommandBuffer c=e->cmd[ix];vkResetCommandBuffer(c,0);VkCommandBufferBeginInfo bi={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};vkBeginCommandBuffer(c,&bi);VkClearValue cl={.color={{.035f,.052f,.07f,1}}};VkRenderPassBeginInfo ri={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,.renderPass=e->rp,.framebuffer=e->fb[ix],.renderArea={{0,0},{e->w,e->h}},.clearValueCount=1,.pClearValues=&cl};vkCmdBeginRenderPass(c,&ri,VK_SUBPASS_CONTENTS_INLINE);VkViewport vp={0,0,(float)e->w,(float)e->h,0,1};VkRect2D sc={{0,0},{e->w,e->h}};vkCmdSetViewport(c,0,1,&vp);vkCmdSetScissor(c,0,1,&sc);vkCmdBindPipeline(c,VK_PIPELINE_BIND_POINT_GRAPHICS,e->pipe);/* The current menu/building shaders are untextured; texture descriptors are created only when the texture renderer is initialized. */VkDeviceSize off=0;vkCmdBindVertexBuffers(c,0,1,&e->vb,&off);vkCmdDraw(c,e->nv,1,0,0);vkCmdEndRenderPass(c);vkEndCommandBuffer(c);vkResetFences(e->dev,1,&e->fence);VkPipelineStageFlags wait=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;VkSubmitInfo si={.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semA,.pWaitDstStageMask=&wait,.commandBufferCount=1,.pCommandBuffers=&c,.signalSemaphoreCount=1,.pSignalSemaphores=&e->semB};if(vkQueueSubmit(e->q,1,&si,e->fence))return;VkPresentInfoKHR pr={.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semB,.swapchainCount=1,.pSwapchains=&e->sw,.pImageIndices=&ix};vkQueuePresentKHR(e->q,&pr);}
-static void closevk(E*e){if(e->dev)vkDeviceWaitIdle(e->dev);if(e->dev){if(e->fence)vkDestroyFence(e->dev,e->fence,0);if(e->sprite_sampler)vkDestroySampler(e->dev,e->sprite_sampler,0);if(e->sprite_view)vkDestroyImageView(e->dev,e->sprite_view,0);if(e->sprite_image)vkDestroyImage(e->dev,e->sprite_image,0);if(e->sprite_memory)vkFreeMemory(e->dev,e->sprite_memory,0);if(e->descriptor_pool)vkDestroyDescriptorPool(e->dev,e->descriptor_pool,0);if(e->atlas_sampler)vkDestroySampler(e->dev,e->atlas_sampler,0);if(e->atlas_view)vkDestroyImageView(e->dev,e->atlas_view,0);if(e->atlas)vkDestroyImage(e->dev,e->atlas,0);if(e->atlas_mem)vkFreeMemory(e->dev,e->atlas_mem,0);if(e->descriptor_layout)vkDestroyDescriptorSetLayout(e->dev,e->descriptor_layout,0);if(e->semA)vkDestroySemaphore(e->dev,e->semA,0);if(e->semB)vkDestroySemaphore(e->dev,e->semB,0);if(e->vb)vkDestroyBuffer(e->dev,e->vb,0);if(e->vm)vkFreeMemory(e->dev,e->vm,0);if(e->pool)vkDestroyCommandPool(e->dev,e->pool,0);for(uint32_t i=0;i<e->n;i++){if(e->fb&&e->fb[i])vkDestroyFramebuffer(e->dev,e->fb[i],0);if(e->views&&e->views[i])vkDestroyImageView(e->dev,e->views[i],0);}if(e->depth_view){vkDestroyImageView(e->dev,e->depth_view,0);e->depth_view=VK_NULL_HANDLE;}if(e->depth_image){vkDestroyImage(e->dev,e->depth_image,0);e->depth_image=VK_NULL_HANDLE;}if(e->depth_memory){vkFreeMemory(e->dev,e->depth_memory,0);e->depth_memory=VK_NULL_HANDLE;}e->depth_format=VK_FORMAT_UNDEFINED;if(e->pipe)vkDestroyPipeline(e->dev,e->pipe,0);if(e->layout)vkDestroyPipelineLayout(e->dev,e->layout,0);if(e->rp)vkDestroyRenderPass(e->dev,e->rp,0);if(e->sw)vkDestroySwapchainKHR(e->dev,e->sw,0);vkDestroyDevice(e->dev,0);}if(e->surface&&e->in)vkDestroySurfaceKHR(e->in,e->surface,0);if(e->in)vkDestroyInstance(e->in,0);free(e->imgs);free(e->views);free(e->fb);free(e->cmd);e->ready=0;memset(&e->in,0,sizeof(e->in));e->dev=0;e->surface=0;}
+  if(e->camera_follow_enabled&&delta_ms)
+   world_camera_follow(&e->camera,e->player.x,e->player.y,.5f,.55f,(float)e->w,(float)e->h,(float)delta_ms/1000.0f,8.0f);
+ }
+ VkResult vr=vkWaitForFences(e->dev,1,&e->fence,VK_TRUE,UINT64_MAX);
+ if(vr!=VK_SUCCESS){ERR("FRAME wait-fence failed: VkResult=%d",(int)vr);e->ready=0;return;}
+ if(e->scene==2&&!e->sea_renderer_attempted){
+  e->sea_renderer_attempted=1;LOG("SEA_STAGE activation requested from BUILDING screen");
+  if(initialize_sea_renderer(e)!=0)ERR("SEA_STAGE activation failed; retaining safe 2D BUILDING screen");
+ }
+ uint32_t ix=0;vr=vkAcquireNextImageKHR(e->dev,e->sw,UINT64_MAX,e->semA,VK_NULL_HANDLE,&ix);
+ if(vr!=VK_SUCCESS&&vr!=VK_SUBOPTIMAL_KHR){ERR("FRAME acquire-image failed: VkResult=%d",(int)vr);return;}
+ if(e->scene==1)draw_world(e);else if(e->scene==2)draw_building(e);else menu(e);
+ void*mapped=NULL;vr=vkMapMemory(e->dev,e->vm,0,e->nv*sizeof(V),0,&mapped);
+ if(vr!=VK_SUCCESS){ERR("FRAME vertex-map failed: VkResult=%d",(int)vr);return;}
+ memcpy(mapped,e->v,e->nv*sizeof(V));vkUnmapMemory(e->dev,e->vm);
+ VkCommandBuffer cb=e->cmd[ix];vr=vkResetCommandBuffer(cb,0);
+ if(vr!=VK_SUCCESS){ERR("FRAME reset-command-buffer failed: VkResult=%d",(int)vr);return;}
+ VkCommandBufferBeginInfo begin={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+ vr=vkBeginCommandBuffer(cb,&begin);if(vr!=VK_SUCCESS){ERR("FRAME begin-command-buffer failed: VkResult=%d",(int)vr);return;}
+ VkClearValue clear={.color={{.035f,.052f,.07f,1.0f}}};
+ VkRenderPassBeginInfo rp={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,.renderPass=e->rp,.framebuffer=e->fb[ix],
+  .renderArea={{0,0},{e->w,e->h}},.clearValueCount=1,.pClearValues=&clear};
+ vkCmdBeginRenderPass(cb,&rp,VK_SUBPASS_CONTENTS_INLINE);
+ VkViewport viewport={0.0f,0.0f,(float)e->w,(float)e->h,0.0f,1.0f};VkRect2D scissor={{0,0},{e->w,e->h}};
+ vkCmdSetViewport(cb,0,1,&viewport);vkCmdSetScissor(cb,0,1,&scissor);
+ if(e->scene==2&&e->sea_renderer_ready&&e->sea_scene){
+  const TgGpuMeshVk*mesh=tg_sea_test_scene_gpu_mesh(e->sea_scene);
+  if(mesh){
+   VkBuffer buffer=tg_gpu_mesh_vk_buffer(mesh);VkDeviceSize vertex_offset=tg_gpu_mesh_vk_vertex_offset(mesh);
+   if(buffer!=VK_NULL_HANDLE){
+    vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,e->sea_pipe);
+    vkCmdPushConstants(cb,e->sea_layout,VK_SHADER_STAGE_VERTEX_BIT,0,(uint32_t)sizeof(TgMat4),&e->sea_camera.view_projection);
+    vkCmdBindVertexBuffers(cb,0,1,&buffer,&vertex_offset);
+    vkCmdBindIndexBuffer(cb,buffer,tg_gpu_mesh_vk_index_offset(mesh),VK_INDEX_TYPE_UINT32);
+    vkCmdDrawIndexed(cb,tg_gpu_mesh_vk_index_count(mesh),1,0,0,0);
+    if(!e->sea_draw_logged){LOG("SEA_STAGE first indexed draw recorded; indices=%u",tg_gpu_mesh_vk_index_count(mesh));e->sea_draw_logged=1;}
+   }else ERR("SEA_STAGE draw skipped: GPU buffer is null");
+  }else ERR("SEA_STAGE draw skipped: scene mesh is null");
+ }
+ vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,e->pipe);VkDeviceSize offset=0;
+ vkCmdBindVertexBuffers(cb,0,1,&e->vb,&offset);vkCmdDraw(cb,e->nv,1,0,0);
+ vkCmdEndRenderPass(cb);vr=vkEndCommandBuffer(cb);
+ if(vr!=VK_SUCCESS){ERR("FRAME end-command-buffer failed: VkResult=%d",(int)vr);return;}
+ vr=vkResetFences(e->dev,1,&e->fence);
+ if(vr!=VK_SUCCESS){ERR("FRAME reset-fence failed: VkResult=%d",(int)vr);e->ready=0;return;}
+ VkPipelineStageFlags wait_stage=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+ VkSubmitInfo submit={.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semA,
+  .pWaitDstStageMask=&wait_stage,.commandBufferCount=1,.pCommandBuffers=&cb,.signalSemaphoreCount=1,.pSignalSemaphores=&e->semB};
+ vr=vkQueueSubmit(e->q,1,&submit,e->fence);
+ if(vr!=VK_SUCCESS){ERR("FRAME queue-submit failed: VkResult=%d",(int)vr);e->ready=0;return;}
+ VkPresentInfoKHR present={.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,.waitSemaphoreCount=1,.pWaitSemaphores=&e->semB,
+  .swapchainCount=1,.pSwapchains=&e->sw,.pImageIndices=&ix};
+ vr=vkQueuePresentKHR(e->q,&present);
+ if(vr!=VK_SUCCESS&&vr!=VK_SUBOPTIMAL_KHR&&vr!=VK_ERROR_OUT_OF_DATE_KHR)
+  ERR("FRAME queue-present failed: VkResult=%d",(int)vr);
+}
+static void closevk(E*e){
+ if(e->dev)vkDeviceWaitIdle(e->dev);
+ if(e->dev){
+  if(e->sea_pipe){vkDestroyPipeline(e->dev,e->sea_pipe,NULL);e->sea_pipe=VK_NULL_HANDLE;}
+  if(e->sea_layout){vkDestroyPipelineLayout(e->dev,e->sea_layout,NULL);e->sea_layout=VK_NULL_HANDLE;}
+  if(e->sea_scene){tg_sea_test_scene_destroy(e->dev,e->sea_scene);e->sea_scene=NULL;}
+  if(e->fence)vkDestroyFence(e->dev,e->fence,0);
+  if(e->sprite_sampler)vkDestroySampler(e->dev,e->sprite_sampler,0);
+  if(e->sprite_view)vkDestroyImageView(e->dev,e->sprite_view,0);
+  if(e->sprite_image)vkDestroyImage(e->dev,e->sprite_image,0);
+  if(e->sprite_memory)vkFreeMemory(e->dev,e->sprite_memory,0);
+  if(e->descriptor_pool)vkDestroyDescriptorPool(e->dev,e->descriptor_pool,0);
+  if(e->atlas_sampler)vkDestroySampler(e->dev,e->atlas_sampler,0);
+  if(e->atlas_view)vkDestroyImageView(e->dev,e->atlas_view,0);
+  if(e->atlas)vkDestroyImage(e->dev,e->atlas,0);
+  if(e->atlas_mem)vkFreeMemory(e->dev,e->atlas_mem,0);
+  if(e->descriptor_layout)vkDestroyDescriptorSetLayout(e->dev,e->descriptor_layout,0);
+  if(e->semA)vkDestroySemaphore(e->dev,e->semA,0);
+  if(e->semB)vkDestroySemaphore(e->dev,e->semB,0);
+  if(e->vb)vkDestroyBuffer(e->dev,e->vb,0);
+  if(e->vm)vkFreeMemory(e->dev,e->vm,0);
+  if(e->pool)vkDestroyCommandPool(e->dev,e->pool,0);
+  for(uint32_t i=0;i<e->n;i++){if(e->fb&&e->fb[i])vkDestroyFramebuffer(e->dev,e->fb[i],0);if(e->views&&e->views[i])vkDestroyImageView(e->dev,e->views[i],0);}
+  if(e->depth_view){vkDestroyImageView(e->dev,e->depth_view,0);e->depth_view=VK_NULL_HANDLE;}
+  if(e->depth_image){vkDestroyImage(e->dev,e->depth_image,0);e->depth_image=VK_NULL_HANDLE;}
+  if(e->depth_memory){vkFreeMemory(e->dev,e->depth_memory,0);e->depth_memory=VK_NULL_HANDLE;}
+  e->depth_format=VK_FORMAT_UNDEFINED;
+  if(e->pipe)vkDestroyPipeline(e->dev,e->pipe,0);
+  if(e->layout)vkDestroyPipelineLayout(e->dev,e->layout,0);
+  if(e->rp)vkDestroyRenderPass(e->dev,e->rp,0);
+  if(e->sw)vkDestroySwapchainKHR(e->dev,e->sw,0);
+  vkDestroyDevice(e->dev,0);
+ }
+ if(e->surface&&e->in)vkDestroySurfaceKHR(e->in,e->surface,0);
+ if(e->in)vkDestroyInstance(e->in,0);
+ free(e->imgs);free(e->views);free(e->fb);free(e->cmd);
+ e->imgs=NULL;e->views=NULL;e->fb=NULL;e->cmd=NULL;e->n=0u;
+ e->ready=0;e->sea_renderer_ready=0;e->sea_renderer_attempted=0;e->sea_draw_logged=0;
+ memset(&e->in,0,sizeof(e->in));
+ e->dev=VK_NULL_HANDLE;e->surface=VK_NULL_HANDLE;e->sw=VK_NULL_HANDLE;e->gpu=VK_NULL_HANDLE;e->q=VK_NULL_HANDLE;
+ e->rp=VK_NULL_HANDLE;e->pipe=VK_NULL_HANDLE;e->layout=VK_NULL_HANDLE;e->pool=VK_NULL_HANDLE;
+ e->vb=VK_NULL_HANDLE;e->vm=VK_NULL_HANDLE;e->fence=VK_NULL_HANDLE;e->semA=VK_NULL_HANDLE;e->semB=VK_NULL_HANDLE;
+}
 static int32_t input(struct android_app*a,AInputEvent*ev){
  E*e=a->userData;
  if(!e->ready||AInputEvent_getType(ev)!=AINPUT_EVENT_TYPE_MOTION)return 0;
