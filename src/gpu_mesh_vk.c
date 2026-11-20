@@ -2,6 +2,7 @@
 
 #include "gpu_mesh_layout.h"
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -370,7 +371,6 @@ int tg_gpu_mesh_vk_upload(VkPhysicalDevice physical_device,
     TgVkBufferAllocation destination = {0};
     TgVkBufferAllocation staging = {0};
     TgGpuMeshVk *mesh = NULL;
-    VkPhysicalDeviceMemoryProperties memory_properties;
     VkResult result = VK_ERROR_INITIALIZATION_FAILED;
     VkBool32 use_staging = VK_TRUE;
 
@@ -392,7 +392,12 @@ int tg_gpu_mesh_vk_upload(VkPhysicalDevice physical_device,
         return -1;
     }
 
-    (void)memory_properties;
+    if (layout.vertex_bytes > (uint64_t)SIZE_MAX ||
+        layout.index_offset > (uint64_t)SIZE_MAX ||
+        layout.index_bytes > (uint64_t)SIZE_MAX) {
+        return -1;
+    }
+
     result = create_destination_buffer(physical_device, device,
                                        (VkDeviceSize)layout.total_bytes,
                                        &destination);
@@ -407,16 +412,29 @@ int tg_gpu_mesh_vk_upload(VkPhysicalDevice physical_device,
         result = create_staging_buffer(physical_device, device,
                                        (VkDeviceSize)layout.total_bytes,
                                        &staging);
-        if (result != VK_SUCCESS) goto cleanup;
+        if (result == VK_ERROR_FEATURE_NOT_PRESENT &&
+            (destination.memory_properties &
+             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0u) {
+            /* Unified-memory fallback: write directly to the visible target. */
+            use_staging = VK_FALSE;
+            result = VK_SUCCESS;
+        } else if (result != VK_SUCCESS) {
+            goto cleanup;
+        }
 
-        result = map_and_copy(device, staging.memory, staging.allocation_size,
-                              staging.memory_properties,
-                              (VkDeviceSize)layout.vertex_bytes,
-                              (VkDeviceSize)layout.index_offset,
-                              (VkDeviceSize)layout.index_bytes,
-                              &validated);
-        if (result != VK_SUCCESS) goto cleanup;
-    } else {
+        if (use_staging == VK_TRUE) {
+            result = map_and_copy(device, staging.memory,
+                                  staging.allocation_size,
+                                  staging.memory_properties,
+                                  (VkDeviceSize)layout.vertex_bytes,
+                                  (VkDeviceSize)layout.index_offset,
+                                  (VkDeviceSize)layout.index_bytes,
+                                  &validated);
+            if (result != VK_SUCCESS) goto cleanup;
+        }
+    }
+
+    if (use_staging == VK_FALSE) {
         result = map_and_copy(device, destination.memory,
                               destination.allocation_size,
                               destination.memory_properties,
