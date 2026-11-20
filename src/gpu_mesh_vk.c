@@ -394,7 +394,8 @@ int tg_gpu_mesh_vk_upload(VkPhysicalDevice physical_device,
 
     if (layout.vertex_bytes > (uint64_t)SIZE_MAX ||
         layout.index_offset > (uint64_t)SIZE_MAX ||
-        layout.index_bytes > (uint64_t)SIZE_MAX) {
+        layout.index_bytes > (uint64_t)SIZE_MAX ||
+        layout.total_bytes > (uint64_t)SIZE_MAX) {
         return -1;
     }
 
