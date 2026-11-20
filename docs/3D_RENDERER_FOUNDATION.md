@@ -2,9 +2,12 @@
 
 ## Purpose
 
-This change establishes a portable mathematical foundation for a future Vulkan
-3D renderer. It does not claim that a 3D renderer, mesh upload path, depth
-buffer, material system, lighting, or 3D scene is implemented yet.
+This change establishes the portable math, camera, CPU mesh, GPU mesh upload,
+and bounded sea-scene ownership foundations for a future Vulkan 3D renderer.
+The application now creates and uploads the 20 x 20 sea test mesh after Vulkan
+device/queue initialization. It does not yet draw that mesh: a 3D graphics
+pipeline, depth attachment, material system, and visible 3D scene remain
+unimplemented. Runtime success on a physical Android GPU is still pending.
 
 ## Current architecture boundary
 
@@ -35,9 +38,14 @@ buffer, material system, lighting, or 3D scene is implemented yet.
 1. Extract shared Vulkan device/swapchain/frame lifecycle without changing the
    current menu output.
 2. Introduce a 3D camera built on the math module and test its matrices.
-3. Add GPU buffer and mesh resource ownership with explicit create/destroy.
-4. Add a depth attachment and a separate 3D graphics pipeline.
-5. Render a minimal triangle/cube test scene, then add materials and lighting.
+3. **Implemented:** create the bounded 20 x 20 sea test scene and invoke the
+   Vulkan GPU mesh upload after device/queue initialization. The scene owns its
+   CPU arrays and opaque GPU mesh; teardown releases the GPU resource before
+   destroying the device.
+4. Run the APK on a physical Android device and verify the upload log/result and
+   selected memory path. A successful APK build alone is not runtime proof.
+5. Add a depth attachment and a separate 3D graphics pipeline, then draw the
+   sea mesh from a 3D camera.
 6. Define the frame composition contract so 2D overlays and 3D content can
    coexist without either renderer owning the other's state.
 
