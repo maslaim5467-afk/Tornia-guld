@@ -452,7 +452,7 @@ static int initialize_2d_world(E*e){
 }
 
 static int create_depth_target(E*e){
- static const VkFormat candidates[]={VK_FORMAT_D32_SFLOAT,VK_FORMAT_D24_UNORM_S8_UINT,VK_FORMAT_D16_UNORM};
+ static const VkFormat candidates[]={VK_FORMAT_D32_SFLOAT,VK_FORMAT_D32_SFLOAT_S8_UINT,VK_FORMAT_D24_UNORM_S8_UINT,VK_FORMAT_D16_UNORM};
  VkFormatProperties properties;
  VkImageCreateInfo image_info={.sType=VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,.imageType=VK_IMAGE_TYPE_2D,.extent={0u,0u,1u},.mipLevels=1u,.arrayLayers=1u,.samples=VK_SAMPLE_COUNT_1_BIT,.tiling=VK_IMAGE_TILING_OPTIMAL,.usage=VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,.sharingMode=VK_SHARING_MODE_EXCLUSIVE,.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED};
  VkMemoryRequirements requirements;VkMemoryAllocateInfo allocation={.sType=VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};VkImageViewCreateInfo view={.sType=VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
@@ -469,7 +469,7 @@ static int create_depth_target(E*e){
  result=vkAllocateMemory(e->dev,&allocation,NULL,&e->depth_memory);if(result!=VK_SUCCESS)goto failed;
  result=vkBindImageMemory(e->dev,e->depth_image,e->depth_memory,0u);if(result!=VK_SUCCESS)goto failed;
  view.image=e->depth_image;view.viewType=VK_IMAGE_VIEW_TYPE_2D;view.format=e->depth_format;view.subresourceRange.aspectMask=VK_IMAGE_ASPECT_DEPTH_BIT;
- if(e->depth_format==VK_FORMAT_D24_UNORM_S8_UINT)view.subresourceRange.aspectMask|=VK_IMAGE_ASPECT_STENCIL_BIT;
+ if(e->depth_format==VK_FORMAT_D32_SFLOAT_S8_UINT||e->depth_format==VK_FORMAT_D24_UNORM_S8_UINT)view.subresourceRange.aspectMask|=VK_IMAGE_ASPECT_STENCIL_BIT;
  view.subresourceRange.levelCount=1u;view.subresourceRange.layerCount=1u;
  result=vkCreateImageView(e->dev,&view,NULL,&e->depth_view);if(result!=VK_SUCCESS)goto failed;
  LOG("Depth target ready: format=%d extent=%ux%u",(int)e->depth_format,e->w,e->h);return 0;
@@ -565,7 +565,7 @@ static int setup(E*e){
  };
  VkAttachmentReference color_ref={0u,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},depth_ref={1u,VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
  VkSubpassDescription sub={.pipelineBindPoint=VK_PIPELINE_BIND_POINT_GRAPHICS,.colorAttachmentCount=1u,.pColorAttachments=&color_ref,.pDepthStencilAttachment=&depth_ref};
- VkSubpassDependency dep={.srcSubpass=VK_SUBPASS_EXTERNAL,.dstSubpass=0u,.srcStageMask=VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,.dstStageMask=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,.srcAccessMask=0u,.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT};
+ VkSubpassDependency dep={.srcSubpass=VK_SUBPASS_EXTERNAL,.dstSubpass=0u,.srcStageMask=VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,.dstStageMask=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,.srcAccessMask=0u,.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT};
  VkRenderPassCreateInfo ri={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,.attachmentCount=2u,.pAttachments=attachments,.subpassCount=1u,.pSubpasses=&sub,.dependencyCount=1u,.pDependencies=&dep};
  if(vkCreateRenderPass(e->dev,&ri,0,&e->rp))return -1;
  VkDescriptorSetLayoutBinding db[2]={{.binding=0,.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,.descriptorCount=1,.stageFlags=VK_SHADER_STAGE_FRAGMENT_BIT},{.binding=1,.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,.descriptorCount=1,.stageFlags=VK_SHADER_STAGE_FRAGMENT_BIT}};VkDescriptorSetLayoutCreateInfo dl={.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,.bindingCount=2,.pBindings=db};if(vkCreateDescriptorSetLayout(e->dev,&dl,0,&e->descriptor_layout))return -1;
