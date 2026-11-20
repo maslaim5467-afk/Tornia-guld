@@ -21,7 +21,7 @@ buffer, material system, lighting, or 3D scene is implemented yet.
 - `tg_mat4_perspective_vk` uses a right-handed perspective projection with
   Vulkan normalized depth in [0, 1].
 
-## Intended renderer separation
+## Architecture specification\n\nSee [3D_RENDERER_ARCHITECTURE.md](3D_RENDERER_ARCHITECTURE.md) for the bounded-sea Stage 1 architecture, module responsibilities, frame composition contract, resource ownership, and acceptance criteria. The specification is a plan; it does not claim these renderer modules or Vulkan features are implemented.\n\n## Intended renderer separation
 
 1. Engine/core: application lifecycle, timing, input, and scene coordination.
 2. 2D renderer: existing world and sprite path, to be modularized separately.
