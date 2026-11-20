@@ -1,0 +1,19 @@
+name: 3D math foundation tests
+
+on:
+  push:
+    branches: ["feature/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  math3d:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Compile 3D math with strict warnings
+        run: cc -std=c11 -Wall -Wextra -Werror -pedantic src/math3d.c tests/math3d_test.c -lm -o math3d_test
+      - name: Run vector and matrix tests
+        run: ./math3d_test
