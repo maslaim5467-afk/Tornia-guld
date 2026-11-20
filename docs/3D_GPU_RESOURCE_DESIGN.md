@@ -6,9 +6,10 @@
 - **Implemented:** opaque Vulkan GPU mesh resource in `src/gpu_mesh_vk.h/.c`; combined vertex/index buffer allocation; device-local preference; staging upload with non-coherent flush handling; direct host-visible fallback; transfer/host-to-vertex-input barriers; upload fence wait; partial-failure cleanup; borrowed draw-metadata accessors.
 - **Target branch:** `feature/3d-renderer-foundation`.
 - **CPU source:** `TgMesh3D` remains the canonical, validated, borrowed CPU mesh.
-- **Not implemented:** application/renderer integration, 3D graphics pipeline, depth attachment, or a visible 3D scene.
+- **Implemented:** `src/sea_test_scene.h/.c` owns the 20 x 20 CPU plane and its opaque GPU mesh; `src/main.c` invokes upload after Vulkan device/queue creation and destroys the scene after device idle but before device destruction.
+- **Not implemented:** 3D graphics pipeline, depth attachment, or visible 3D draw.
 
-The upload module is implemented as reusable backend code and included by the Android wildcard build. No on-device GPU upload or rendering result is claimed until the app calls it and the target device is tested.
+The upload module is invoked during application startup through the bounded sea test scene. The application logs the mesh dimensions, index count, staging-path selection, and selected memory flags after the upload function returns successfully. This confirms that the code path returned a successful Vulkan upload result on that run; it is not yet evidence that the APK has been executed successfully on a physical target device. No 3D drawing result is claimed.
 
 ## 1. Findings from the current Vulkan path
 
@@ -163,10 +164,10 @@ The scene supplies a validated `TgMesh3D`. The module performs allocation, uploa
 
 1. **Complete:** platform-independent combined-buffer layout calculator with strict-warning overflow/alignment tests in the 3D CI workflow.
 2. **Implemented, pending integration:** Vulkan resource module for destination/staging allocation, memory selection, copy/direct-write path, barriers, fence synchronization, and deterministic destruction. The module is deliberately separate from the monolithic `main.c`.
-3. **Next:** create the 20 x 20 XZ sea mesh in a scene owner and call the upload module after Vulkan device initialization; release the GPU mesh before device destruction.
-4. Add a small device diagnostic that records the selected memory path and upload result without changing the 2D rendering path.
-5. Build the Android APK for `arm64-v8a`, then execute on the target Android device and verify that the upload path succeeds.
-6. Only after upload validation, integrate the mesh into a separate 3D graphics pipeline and depth-capable render target.
+3. **Implemented:** `TgSeaTestScene` owns the 20 x 20 XZ CPU plane and GPU mesh. `main.c` calls the upload API after Vulkan device/queue initialization and releases the GPU mesh after `vkDeviceWaitIdle` but before `vkDestroyDevice`.
+4. **Implemented:** startup logs report upload success, index count, whether staging was used, and the selected destination memory flags. The existing 2D draw path is unchanged.
+5. Build the updated Android APK for `arm64-v8a`, then execute it on the target device and inspect the upload log/result.
+6. Only after device validation, integrate the mesh into a separate 3D graphics pipeline and depth-capable render target.
 7. Capture screenshot/video and frame-time, FPS, memory, device, GPU/driver, and resolution details.
 
 ## 9. Explicitly out of scope for this step
