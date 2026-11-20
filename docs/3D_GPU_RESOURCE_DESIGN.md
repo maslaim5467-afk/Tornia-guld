@@ -7,20 +7,21 @@
 - **Target branch:** `feature/3d-renderer-foundation`.
 - **CPU source:** `TgMesh3D` remains the canonical, validated, borrowed CPU mesh.
 - **Implemented:** `src/sea_test_scene.h/.c` owns the 20 x 20 CPU plane and its opaque GPU mesh; `src/main.c` invokes upload after Vulkan device/queue creation and destroys the scene after device idle but before device destruction.
-- **Not implemented:** 3D graphics pipeline, depth attachment, or visible 3D draw.
+- **Implemented:** depth-capable render pass, device-supported depth image/view, separate position-only 3D graphics pipeline, camera push constants, and indexed sea-plane drawing in the existing frame command buffer.
+- **Not implemented:** waves, animated water, lighting, or a reusable standalone `renderer3d` module.
 
-The upload module is invoked during application startup through the bounded sea test scene. The application logs the mesh dimensions, index count, staging-path selection, and selected memory flags after the upload function returns successfully. This confirms that the code path returned a successful Vulkan upload result on that run; it is not yet evidence that the APK has been executed successfully on a physical target device. No 3D drawing result is claimed.
+The upload module is invoked during application startup through the bounded sea test scene. The application logs the mesh dimensions, index count, staging-path selection, and selected memory flags after upload succeeds. The new 3D pipeline draws the plane on the BUILDING test screen before the existing 2D text overlay. CI confirms compilation and packaging; the visual result of this updated pipeline still requires a physical-device run and screenshot/log review.
 
 ## 1. Findings from the current Vulkan path
 
 The current Android renderer in `src/main.c` is still a single Vulkan owner and frame loop:
 
 - Device creation requests Vulkan 1.0 and selects one queue family that supports both graphics and presentation.
-- The current render pass has a color attachment only. There is no depth image or depth attachment yet.
+- The render pass now has color and depth attachments. A device-supported depth format is selected from D32, D24S8, and D16 candidates; one depth image is shared by the current serialized frame loop, which waits on a single frame fence before recording the next frame.
 - The existing 2D path creates one large host-visible, host-coherent vertex buffer and rewrites it each frame.
 - Texture creation already demonstrates a staging-buffer upload into device-local image memory. That code is embedded in `main.c` and waits with `vkQueueWaitIdle`; it is a reference for the basic transfer route, not a reusable resource layer.
 - `closevk()` waits for the device to become idle and destroys the device-scoped resources. `APP_CMD_TERM_WINDOW` currently performs a full Vulkan teardown, so device resources must be recreated after the next window initialization.
-- `build.sh` compiles `src/*.c`, but shader source compilation is explicit and currently lists the two 2D menu shaders.
+- `build.sh` compiles `src/*.c`; shader compilation is explicit and now includes the two menu shaders plus `sea.vert` and `sea.frag`.
 
 The 3D mesh path must not assume that the current 2D buffer, shader inputs, render pass, or pipeline can render 3D geometry.
 
@@ -164,15 +165,15 @@ The scene supplies a validated `TgMesh3D`. The module performs allocation, uploa
 
 1. **Complete:** platform-independent combined-buffer layout calculator with strict-warning overflow/alignment tests in the 3D CI workflow.
 2. **Implemented, pending integration:** Vulkan resource module for destination/staging allocation, memory selection, copy/direct-write path, barriers, fence synchronization, and deterministic destruction. The module is deliberately separate from the monolithic `main.c`.
-3. **Implemented:** `TgSeaTestScene` owns the 20 x 20 XZ CPU plane and GPU mesh. `main.c` calls the upload API after Vulkan device/queue initialization and releases the GPU mesh after `vkDeviceWaitIdle` but before `vkDestroyDevice`.
-4. **Implemented:** startup logs report upload success, index count, whether staging was used, and the selected destination memory flags. If the experimental upload fails, the error is logged and startup continues through the existing 2D path rather than making the new feature a hard dependency.
-5. Build the updated Android APK for `arm64-v8a`, then execute it on the target device and inspect the upload log/result.
-6. Only after device validation, integrate the mesh into a separate 3D graphics pipeline and depth-capable render target.
-7. Capture screenshot/video and frame-time, FPS, memory, device, GPU/driver, and resolution details.
+3. **Implemented:** `TgSeaTestScene` owns the 20 x 20 XZ CPU plane and GPU mesh. `main.c` calls upload after Vulkan device/queue initialization and releases the mesh after `vkDeviceWaitIdle` but before `vkDestroyDevice`.
+4. **Implemented:** a supported depth target, depth-capable render pass, separate sea pipeline, camera matrix push constants, indexed draw, and 2D text overlay are connected. The sea draw is shown only on the BUILDING test screen; the main menu and 2D world keep their prior paths.
+5. **Build passed:** Android `arm64-v8a` APK was compiled, signed, verified, and uploaded by CI on the current implementation commit. This is build validation, not a physical-GPU visual test.
+6. Execute the new APK on the target device; inspect the `Depth target ready` and `3D sea graphics pipeline ready` logs and capture the BUILDING screen.
+7. Capture frame-time, FPS, memory, device, GPU/driver, and resolution details before adding waves or lighting.
 
 ## 9. Explicitly out of scope for this step
 
-- No depth attachment or 3D graphics pipeline is implemented here.
+- This stage uses a flat opaque water-color plane; it does not yet implement waves or advanced water rendering.
 - No waves, water shader, lighting, reflections, transparency, foam, or shoreline.
 - No 2D renderer rewrite or same-frame 2D/3D composition.
 - No claim of runtime GPU success without an on-device run and captured evidence.
