@@ -25,7 +25,7 @@ typedef struct {
  VkBuffer vb; VkDeviceMemory vm; VkSemaphore semA,semB; VkFence fence;
  VkImage atlas; VkDeviceMemory atlas_mem; VkImageView atlas_view; VkSampler atlas_sampler;
  VkImage sprite_image; VkDeviceMemory sprite_memory; VkImageView sprite_view; VkSampler sprite_sampler;
- uint32_t sprite_width,sprite_height; AnimationSet animations; AnimationController player_animation; int sprite_ready; uint64_t last_frame_ns;
+ uint32_t sprite_width,sprite_height; AnimationSet animations; AnimationController player_animation; int sprite_ready,world_resources_ready; uint64_t last_frame_ns;
  VkDescriptorSetLayout descriptor_layout; VkDescriptorPool descriptor_pool; VkDescriptorSet descriptor_set;
  V v[MAXV]; uint32_t nv; int ready,notice,scene,dragging,world_logged;
  World world; WorldCamera camera; float last_x,last_y;
@@ -422,6 +422,26 @@ static int create_texture_atlas(E*e){
  LOG("Vulkan terrain atlas uploaded; missing source images=%u",failures);
  return 0;
 }
+static int initialize_2d_world(E*e){
+ if(e->world_resources_ready)return 0;
+ if(create_sprite_texture(e,"sprites/characters/player/file_00000000ce0c8210854d0157a262ddc5.png")!=0||
+    load_animation_config(e,"sprites/characters/player/player.anim")!=0){
+  ERR("Player sprite animation resources could not be initialized");
+  return -1;
+ }
+ world_generate(&e->world,0x4f4c5245u);
+ player_init(&e->player,(float)WORLD_WIDTH*WORLD_TILE_SIZE*.5f,(float)WORLD_HEIGHT*WORLD_TILE_SIZE*.5f);
+ world_camera_reset(&e->camera);
+ e->camera.x=e->player.x-(float)e->w*.5f;
+ e->camera.y=e->player.y-(float)e->h*.55f;
+ world_camera_clamp(&e->camera,(float)e->w,(float)e->h);
+ e->camera_follow_enabled=1;
+ e->joystick_pointer_id=-1;
+ e->camera_pointer_id=-1;
+ e->world_resources_ready=1;
+ LOG("2D world resources initialized on demand");
+ return 0;
+}
 static int setup(E*e){
  const char*ie[]={VK_KHR_SURFACE_EXTENSION_NAME,VK_KHR_ANDROID_SURFACE_EXTENSION_NAME};VkApplicationInfo ai={.sType=VK_STRUCTURE_TYPE_APPLICATION_INFO,.pApplicationName="TORNIA_GULD",.apiVersion=VK_API_VERSION_1_0};
  VkInstanceCreateInfo ii={.sType=VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,.pApplicationInfo=&ai,.enabledExtensionCount=2,.ppEnabledExtensionNames=ie};if(vkCreateInstance(&ii,0,&e->in))return -1;
@@ -445,8 +465,7 @@ static int setup(E*e){
  VkCommandPoolCreateInfo pci={.sType=VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,.flags=VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,.queueFamilyIndex=e->qf};if(vkCreateCommandPool(e->dev,&pci,0,&e->pool))return -1;VkCommandBufferAllocateInfo cai={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,.commandPool=e->pool,.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY,.commandBufferCount=e->n};if(vkAllocateCommandBuffers(e->dev,&cai,e->cmd))return -1;
  VkBufferCreateInfo bi={.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,.size=sizeof(V)*MAXV,.usage=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,.sharingMode=VK_SHARING_MODE_EXCLUSIVE};if(vkCreateBuffer(e->dev,&bi,0,&e->vb))return -1;VkMemoryRequirements mr;vkGetBufferMemoryRequirements(e->dev,e->vb,&mr);uint32_t mt=memtype(e,mr.memoryTypeBits,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);if(mt==UINT32_MAX)return -1;VkMemoryAllocateInfo mai={.sType=VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,.allocationSize=mr.size,.memoryTypeIndex=mt};if(vkAllocateMemory(e->dev,&mai,0,&e->vm))return -1;vkBindBufferMemory(e->dev,e->vb,e->vm,0);
  if(create_texture_atlas(e)){ERR("Terrain texture atlas creation failed");return -1;}
-  if(create_sprite_texture(e,"sprites/characters/player/file_00000000ce0c8210854d0157a262ddc5.png")!=0||load_animation_config(e,"sprites/characters/player/player.anim")!=0){ERR("Player sprite animation resources could not be initialized");return -1;}
- VkSemaphoreCreateInfo sem={.sType=VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};vkCreateSemaphore(e->dev,&sem,0,&e->semA);vkCreateSemaphore(e->dev,&sem,0,&e->semB);VkFenceCreateInfo fe={.sType=VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,.flags=VK_FENCE_CREATE_SIGNALED_BIT};vkCreateFence(e->dev,&fe,0,&e->fence);world_generate(&e->world,0x4f4c5245u);player_init(&e->player,(float)WORLD_WIDTH*WORLD_TILE_SIZE*.5f,(float)WORLD_HEIGHT*WORLD_TILE_SIZE*.5f);world_camera_reset(&e->camera);e->camera.x=e->player.x-(float)e->w*.5f;e->camera.y=e->player.y-(float)e->h*.55f;world_camera_clamp(&e->camera,(float)e->w,(float)e->h);e->camera_follow_enabled=1;e->joystick_pointer_id=-1;e->camera_pointer_id=-1;e->ready=1;LOG("Vulkan main menu ready %ux%u",e->w,e->h);return 0;
+ VkSemaphoreCreateInfo sem={.sType=VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};vkCreateSemaphore(e->dev,&sem,0,&e->semA);vkCreateSemaphore(e->dev,&sem,0,&e->semB);VkFenceCreateInfo fe={.sType=VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,.flags=VK_FENCE_CREATE_SIGNALED_BIT};vkCreateFence(e->dev,&fe,0,&e->fence);e->joystick_pointer_id=-1;e->camera_pointer_id=-1;e->ready=1;LOG("Vulkan main menu ready %ux%u; 2D world and character deferred",e->w,e->h);return 0;
 }
 static void frame(E*e){
  if(!e->ready)return;
@@ -458,7 +477,8 @@ static void frame(E*e){
   e->last_frame_ns=ns;
  }
  if(e->scene==1){
-  player_update(&e->player,delta_ms,(float)WORLD_WIDTH*WORLD_TILE_SIZE,(float)WORLD_HEIGHT*WORLD_TILE_SIZE);
+  if(!e->world_resources_ready&&initialize_2d_world(e)!=0){e->scene=2;ERR("2D world initialization failed; returning to construction screen");}
+  if(e->scene==1)player_update(&e->player,delta_ms,(float)WORLD_WIDTH*WORLD_TILE_SIZE,(float)WORLD_HEIGHT*WORLD_TILE_SIZE);
   if(e->sprite_ready){
    const char*clip=player_animation_name(&e->player);
    if(animation_controller_update(&e->player_animation,&e->animations,
