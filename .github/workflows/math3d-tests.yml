@@ -13,7 +13,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Compile 3D math and camera with strict warnings
-        run: cc -std=c11 -Wall -Wextra -Werror -pedantic src/math3d.c src/camera3d.c tests/math3d_test.c tests/camera3d_test.c -lm -o math3d_test
-      - name: Run vector, matrix, and camera tests
-        run: ./math3d_test
+      - name: Compile and run vector and matrix tests
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -pedantic src/math3d.c tests/math3d_test.c -lm -o math3d_test
+          ./math3d_test
+      - name: Compile and run camera tests
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -pedantic src/math3d.c src/camera3d.c tests/camera3d_test.c -lm -o camera3d_test
+          ./camera3d_test
