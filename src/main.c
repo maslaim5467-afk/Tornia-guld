@@ -25,6 +25,8 @@ typedef struct {
  TgMat4 view_projection;
  float time_seconds;
  float padding[3];
+ float camera_position[4];
+ float sun_direction[4];
 } TgSeaPushConstants;
 typedef struct {
  struct android_app *app; VkInstance in; VkSurfaceKHR surface; VkPhysicalDevice gpu; VkDevice dev; VkQueue q;
@@ -583,7 +585,7 @@ failed:
 
 static int create_sea_pipeline(E*e){
  VkShaderModule vs=VK_NULL_HANDLE,fs=VK_NULL_HANDLE;
- VkPushConstantRange range={.stageFlags=VK_SHADER_STAGE_VERTEX_BIT,.offset=0,.size=(uint32_t)sizeof(TgSeaPushConstants)};
+ VkPushConstantRange range={.stageFlags=VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT,.offset=0,.size=(uint32_t)sizeof(TgSeaPushConstants)};
  VkPipelineLayoutCreateInfo layout_ci={.sType=VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,.pushConstantRangeCount=1,.pPushConstantRanges=&range};
  VkPipelineShaderStageCreateInfo stages[2];
  VkVertexInputBindingDescription binding={.binding=0,.stride=(uint32_t)sizeof(TgMeshVertex3D),.inputRate=VK_VERTEX_INPUT_RATE_VERTEX};
@@ -744,7 +746,18 @@ static void frame(E*e){
     sea_push.view_projection=e->sea_camera.view_projection;
     sea_push.time_seconds=e->sea_time_seconds;
     sea_push.padding[0]=0.0f;sea_push.padding[1]=0.0f;sea_push.padding[2]=0.0f;
-    vkCmdPushConstants(cb,e->sea_layout,VK_SHADER_STAGE_VERTEX_BIT,0,(uint32_t)sizeof(sea_push),&sea_push);
+    sea_push.camera_position[0]=e->sea_camera.position.x;
+    sea_push.camera_position[1]=e->sea_camera.position.y;
+    sea_push.camera_position[2]=e->sea_camera.position.z;
+    sea_push.camera_position[3]=1.0f;
+    /* Preview sun: fixed world-space direction, later driven by game time. */
+    sea_push.sun_direction[0]=-0.35f;
+    sea_push.sun_direction[1]=0.82f;
+    sea_push.sun_direction[2]=0.44f;
+    sea_push.sun_direction[3]=0.0f;
+    vkCmdPushConstants(cb,e->sea_layout,
+        VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT,
+        0,(uint32_t)sizeof(sea_push),&sea_push);
     vkCmdBindVertexBuffers(cb,0,1,&buffer,&vertex_offset);
     vkCmdBindIndexBuffer(cb,buffer,tg_gpu_mesh_vk_index_offset(mesh),VK_INDEX_TYPE_UINT32);
     vkCmdDrawIndexed(cb,tg_gpu_mesh_vk_index_count(mesh),1,0,0,0);
