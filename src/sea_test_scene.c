@@ -11,14 +11,11 @@ struct TgSeaTestScene {
     TgGpuMeshVk *gpu_mesh;
 };
 
-#define TG_SEA_COLUMNS 96u
-#define TG_SEA_ROWS 48u
-
 static int build_sea_grid(TgSeaTestScene *scene) {
-    const size_t columns = (size_t)TG_SEA_COLUMNS + 1u;
-    const size_t rows = (size_t)TG_SEA_ROWS + 1u;
+    const size_t columns = (size_t)TG_SEA_TEST_SCENE_COLUMNS + 1u;
+    const size_t rows = (size_t)TG_SEA_TEST_SCENE_ROWS + 1u;
     const size_t vertex_count = columns * rows;
-    const size_t index_count = (size_t)TG_SEA_COLUMNS * TG_SEA_ROWS * 6u;
+    const size_t index_count = (size_t)TG_SEA_TEST_SCENE_COLUMNS * TG_SEA_TEST_SCENE_ROWS * 6u;
     size_t z, x, cursor = 0u;
 
     scene->vertices = (TgMeshVertex3D *)calloc(vertex_count, sizeof(*scene->vertices));
@@ -27,8 +24,8 @@ static int build_sea_grid(TgSeaTestScene *scene) {
 
     for (z = 0u; z < rows; ++z) {
         for (x = 0u; x < columns; ++x) {
-            const float u = (float)x / (float)TG_SEA_COLUMNS;
-            const float v = (float)z / (float)TG_SEA_ROWS;
+            const float u = (float)x / (float)TG_SEA_TEST_SCENE_COLUMNS;
+            const float v = (float)z / (float)TG_SEA_TEST_SCENE_ROWS;
             const size_t index = z * columns + x;
             scene->vertices[index].position.x = (u - 0.5f) * TG_SEA_TEST_SCENE_WIDTH;
             scene->vertices[index].position.y = 0.0f;
@@ -36,8 +33,8 @@ static int build_sea_grid(TgSeaTestScene *scene) {
         }
     }
 
-    for (z = 0u; z < (size_t)TG_SEA_ROWS; ++z) {
-        for (x = 0u; x < (size_t)TG_SEA_COLUMNS; ++x) {
+    for (z = 0u; z < (size_t)TG_SEA_TEST_SCENE_ROWS; ++z) {
+        for (x = 0u; x < (size_t)TG_SEA_TEST_SCENE_COLUMNS; ++x) {
             const uint32_t a = (uint32_t)(z * columns + x);
             const uint32_t b = a + 1u;
             const uint32_t d = (uint32_t)((z + 1u) * columns + x);
@@ -86,9 +83,9 @@ int tg_sea_test_scene_create(VkPhysicalDevice physical_device,
     if (build_sea_grid(scene) != 0 ||
         tg_mesh3d_init(&scene->cpu_mesh,
                        scene->vertices,
-                       ((size_t)TG_SEA_COLUMNS + 1u) * ((size_t)TG_SEA_ROWS + 1u),
+                       ((size_t)TG_SEA_TEST_SCENE_COLUMNS + 1u) * ((size_t)TG_SEA_TEST_SCENE_ROWS + 1u),
                        scene->indices,
-                       (size_t)TG_SEA_COLUMNS * (size_t)TG_SEA_ROWS * 6u) != 0) {
+                       (size_t)TG_SEA_TEST_SCENE_COLUMNS * (size_t)TG_SEA_TEST_SCENE_ROWS * 6u) != 0) {
         free(scene->vertices);
         free(scene->indices);
         free(scene);
