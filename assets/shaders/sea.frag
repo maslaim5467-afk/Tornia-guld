@@ -51,14 +51,17 @@ vec3 fresnelSchlick(float cosine, vec3 f0) {
 /* Procedural sky radiance used as a lightweight environment reflection. */
 vec3 sampleSky(vec3 direction, vec3 sunDirection) {
     float horizon = smoothstep(-0.18, 0.42, direction.y);
-    vec3 horizonColor = vec3(0.34, 0.52, 0.66);
-    vec3 zenithColor = vec3(0.035, 0.16, 0.34);
+    vec3 horizonColor = vec3(0.78, 0.30, 0.12);
+    vec3 zenithColor = vec3(0.018, 0.055, 0.13);
     vec3 sky = mix(horizonColor, zenithColor, horizon);
 
-    float sunDisc = pow(max(dot(direction, sunDirection), 0.0), 420.0);
-    float sunGlow = pow(max(dot(direction, sunDirection), 0.0), 24.0);
-    sky += vec3(1.0, 0.78, 0.48) * sunDisc * 8.0;
-    sky += vec3(1.0, 0.62, 0.34) * sunGlow * 0.22;
+    float warmBand = exp(-abs(direction.y) * 8.0);
+    sky = mix(sky, vec3(0.95, 0.43, 0.20), warmBand * 0.34);
+    float sunAlignment = max(dot(direction, sunDirection), 0.0);
+    float sunDisc = pow(sunAlignment, 900.0);
+    float sunGlow = pow(sunAlignment, 32.0);
+    sky += vec3(1.0, 0.72, 0.40) * sunDisc * 10.0;
+    sky += vec3(1.0, 0.34, 0.12) * sunGlow * 0.38;
     return sky;
 }
 
