@@ -9,11 +9,13 @@ extern "C" {
 
 #define TG_SEA_TEST_SCENE_WIDTH 40.0f
 #define TG_SEA_TEST_SCENE_DEPTH 20.0f
+#define TG_SEA_TEST_SCENE_COLUMNS 96u
+#define TG_SEA_TEST_SCENE_ROWS 48u
 
 typedef struct TgSeaTestScene TgSeaTestScene;
 
 /*
- * Creates the bounded 20 x 20 XZ sea test plane and uploads its mesh.
+ * Creates a subdivided bounded XZ sea grid and uploads its mesh.
  * The scene owns its CPU arrays and the opaque GPU mesh. The upload call
  * waits for completion before this function returns.
  *
