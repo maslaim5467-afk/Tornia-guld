@@ -11,33 +11,79 @@ layout(location = 0) out vec3 outNormal;
 layout(location = 1) out float outHeight;
 layout(location = 2) out vec3 outWorldPosition;
 
+/*
+ * Gerstner component.
+ *
+ * phase = k * dot(direction, position) - omega * time
+ * horizontal displacement = Q * A * direction * cos(phase)
+ * vertical displacement   = A * sin(phase)
+ *
+ * The partial derivatives are accumulated analytically so the fragment
+ * shader receives a geometric normal for the displaced parametric surface.
+ */
+void addGerstnerWave(
+    inout vec3 position,
+    inout vec3 tangentX,
+    inout vec3 tangentZ,
+    vec2 direction,
+    float amplitude,
+    float waveNumber,
+    float angularFrequency,
+    float steepness,
+    float timeSeconds
+) {
+    float phase = waveNumber * dot(direction, inPosition.xz)
+                - angularFrequency * timeSeconds;
+    float s = sin(phase);
+    float c = cos(phase);
+    float qa = steepness * amplitude;
+    float ak = amplitude * waveNumber;
+    float qak = qa * waveNumber;
+
+    position.x += qa * direction.x * c;
+    position.y += amplitude * s;
+    position.z += qa * direction.y * c;
+
+    tangentX.x -= qak * direction.x * direction.x * s;
+    tangentX.y += ak * direction.x * c;
+    tangentX.z -= qak * direction.x * direction.y * s;
+
+    tangentZ.x -= qak * direction.x * direction.y * s;
+    tangentZ.y += ak * direction.y * c;
+    tangentZ.z -= qak * direction.y * direction.y * s;
+}
+
 void main() {
     float t = camera.wave.x;
-    float x = inPosition.x;
-    float z = inPosition.z;
 
-    float p1 = x * 0.48 + z * 0.12 + t * 1.05;
-    float p2 = z * 0.72 - x * 0.10 - t * 0.82;
-    float p3 = (x + z) * 0.34 + t * 0.58;
-    float p4 = (x - z) * 0.88 - t * 1.32;
+    vec3 displaced = inPosition;
+    vec3 tangentX = vec3(1.0, 0.0, 0.0);
+    vec3 tangentZ = vec3(0.0, 0.0, 1.0);
 
-    float height = 0.42 * sin(p1)
-                 + 0.25 * sin(p2)
-                 + 0.14 * sin(p3)
-                 + 0.075 * sin(p4);
+    // Long swell: high amplitude and long wavelength.
+    addGerstnerWave(displaced, tangentX, tangentZ,
+        normalize(vec2(0.92, 0.39)),
+        0.48, 0.449, sqrt(9.81 * 0.449) * 0.72, 0.65, t);
 
-    float dx = 0.42 * 0.48 * cos(p1)
-             - 0.25 * 0.10 * cos(p2)
-             + 0.14 * 0.34 * cos(p3)
-             + 0.075 * 0.88 * cos(p4);
-    float dz = 0.42 * 0.12 * cos(p1)
-             + 0.25 * 0.72 * cos(p2)
-             + 0.14 * 0.34 * cos(p3)
-             - 0.075 * 0.88 * cos(p4);
+    // Crossing secondary swell.
+    addGerstnerWave(displaced, tangentX, tangentZ,
+        normalize(vec2(-0.28, 0.96)),
+        0.26, 0.785, sqrt(9.81 * 0.785) * 0.78, 0.58, t);
 
-    outNormal = normalize(vec3(-dx, 1.0, -dz));
-    outHeight = height;
-    outWorldPosition = vec3(x, height, z);
+    // Medium chop.
+    addGerstnerWave(displaced, tangentX, tangentZ,
+        normalize(vec2(0.72, -0.69)),
+        0.13, 1.396, sqrt(9.81 * 1.396) * 0.82, 0.42, t);
 
-    gl_Position = camera.viewProjection * vec4(outWorldPosition, 1.0);
+    // Fine surface detail.
+    addGerstnerWave(displaced, tangentX, tangentZ,
+        normalize(vec2(-0.86, -0.51)),
+        0.07, 2.513, sqrt(9.81 * 2.513) * 0.86, 0.28, t);
+
+    vec3 normal = normalize(cross(tangentZ, tangentX));
+
+    outNormal = normal;
+    outHeight = displaced.y;
+    outWorldPosition = displaced;
+    gl_Position = camera.viewProjection * vec4(displaced, 1.0);
 }
