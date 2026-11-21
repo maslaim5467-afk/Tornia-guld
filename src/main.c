@@ -34,7 +34,8 @@ typedef struct {
  VkRenderPass rp; VkPipelineLayout layout; VkPipeline pipe; VkCommandPool pool; VkCommandBuffer *cmd;
  VkImage depth_image; VkDeviceMemory depth_memory; VkImageView depth_view; VkFormat depth_format;
  TgSeaTestScene *sea_scene; TgCamera3D sea_camera;
- VkPipeline sea_pipe; VkPipelineLayout sea_layout;
+ VkPipeline sea_pipe; VkPipeline sun_pipe; VkPipelineLayout sea_layout;
+ uint32_t sun_start,sun_nv;
  int sea_renderer_attempted,sea_renderer_ready,sea_draw_logged;
   float sea_time_seconds,sea_yaw,sea_pitch;
  int sea_touch_mode,sea_pointer_a,sea_pointer_b;
@@ -107,6 +108,20 @@ static void push_disk(E*e,float cx,float cy,float radius,float r,float g,float b
   V p0={x0*2/e->w-1,y0*2/e->h-1,0,0,r,g,b,a,0};
   V p1={x1*2/e->w-1,y1*2/e->h-1,0,0,r,g,b,a,0};
   e->v[e->nv++]=c;e->v[e->nv++]=p0;e->v[e->nv++]=p1;
+ }
+}
+static void push_depth_disk(E*e,float cx,float cy,float radius,float depth,float r,float g,float b,float a){
+ const unsigned segments=36u;
+ for(unsigned i=0;i<segments;i++){
+  float a0=(float)i*6.28318530718f/(float)segments;
+  float a1=(float)(i+1u)*6.28318530718f/(float)segments;
+  float x0=cx+cosf(a0)*radius,y0=cy+sinf(a0)*radius;
+  float x1=cx+cosf(a1)*radius,y1=cy+sinf(a1)*radius;
+  if(e->nv+3u>MAXV)return;
+  V center={cx*2.0f/(float)e->w-1.0f,cy*2.0f/(float)e->h-1.0f,0,0,r,g,b,a,depth};
+  V p0={x0*2.0f/(float)e->w-1.0f,y0*2.0f/(float)e->h-1.0f,0,0,r,g,b,a,depth};
+  V p1={x1*2.0f/(float)e->w-1.0f,y1*2.0f/(float)e->h-1.0f,0,0,r,g,b,a,depth};
+  e->v[e->nv++]=center;e->v[e->nv++]=p0;e->v[e->nv++]=p1;
  }
 }
 static void joystick_metrics(E*e,float*cx,float*cy,float*radius){
@@ -311,38 +326,29 @@ static void menu(E*e){
  if(e->notice){float my=e->h*.84f,mw=e->w*.55f;push(e,cx-mw/2,my,mw,e->h*.11f,.60f,.43f,.22f);push(e,cx-mw/2+3,my+3,mw-6,e->h*.11f-6,.08f,.10f,.12f);label(e,"COMING SOON",cx-49,my+e->h*.035f,1.5f,.98f,.88f,.72f);}
 }
 static void push_preview_sun(E*e){
- if(!e->sea_renderer_ready||e->w==0||e->h==0)return;
-
- /*
-  * Treat the sun as a distant celestial direction, not a nearby world point.
-  * Camera translation must not create parallax that makes the sun sink toward
-  * the ocean when the observer rises. Keep this vector identical to the
-  * directional light sent to the water shader.
-  */
+ if(!e->sea_renderer_ready||e->w==0u||e->h==0u)return;
+ /* Project a distant point on the fixed celestial ray for screen position and depth. */
  const float sun_x=0.0f,sun_y=0.0172f,sun_z=-0.99985f;
  const float sun_distance=1000.0f;
  const float world_x=e->sea_camera.position.x+sun_x*sun_distance;
  const float world_y=e->sea_camera.position.y+sun_y*sun_distance;
  const float world_z=e->sea_camera.position.z+sun_z*sun_distance;
  const float*m=e->sea_camera.view_projection.m;
-
- /* Project a camera-relative point on the fixed world-space sun ray. */
  float clip_x=m[0]*world_x+m[4]*world_y+m[8]*world_z+m[12];
  float clip_y=m[1]*world_x+m[5]*world_y+m[9]*world_z+m[13];
  float clip_z=m[2]*world_x+m[6]*world_y+m[10]*world_z+m[14];
  float clip_w=m[3]*world_x+m[7]*world_y+m[11]*world_z+m[15];
  if(clip_w<=0.001f||clip_z<0.0f||clip_z>clip_w)return;
-
  float ndc_x=clip_x/clip_w,ndc_y=clip_y/clip_w;
  if(ndc_x < -1.25f||ndc_x > 1.25f||ndc_y < -1.25f||ndc_y > 1.25f)return;
  float sx=(ndc_x*0.5f+0.5f)*(float)e->w;
  float sy=(ndc_y*0.5f+0.5f)*(float)e->h;
-
- /* A restrained screen-space disc: visual marker only, not a light source. */
+ float sun_depth=clip_z/clip_w;
  float radius=(float)(e->h<e->w?e->h:e->w)*0.014f;
- push_disk(e,sx,sy,radius*3.2f,1.0f,.48f,.20f,.045f);
- push_disk(e,sx,sy,radius*2.0f,1.0f,.62f,.30f,.10f);
- push_disk(e,sx,sy,radius,1.0f,.86f,.62f,.96f);
+ /* The disc carries the sun's projected depth; the ocean depth test clips it at the horizon. */
+ push_depth_disk(e,sx,sy,radius*3.2f,sun_depth,1.0f,.48f,.20f,.045f);
+ push_depth_disk(e,sx,sy,radius*2.0f,sun_depth,1.0f,.62f,.30f,.10f);
+ push_depth_disk(e,sx,sy,radius,sun_depth,1.0f,.86f,.62f,.96f);
 }
 static void draw_building(E*e){
  e->nv=0;e->sky_nv=0;
@@ -353,8 +359,9 @@ static void draw_building(E*e){
  push_sky_band(e,(float)e->h*0.52f,(float)e->h,
                .72f,.25f,.105f,.16f,.055f,.085f);
  e->sky_nv=e->nv;
- /* Keep the sunrise marker and BUILDING overlay in front of the water. */
+ e->sun_start=e->nv;
  push_preview_sun(e);
+ e->sun_nv=e->nv-e->sun_start;
  label(e,"TORNIA_GULD",cx-84,e->h*.27f,4,.91f,.82f,.63f);
  label(e,"BUILDING",cx-56,e->h*.47f,3,.96f,.87f,.70f);
  label(e,"IN PROGRESS",cx-66,e->h*.56f,2,.72f,.78f,.82f);
@@ -554,7 +561,7 @@ static int initialize_2d_world(E*e){
  LOG("2D world resources initialized on demand");
  return 0;
 }
-static int create_depth_target_probe(E*e){
+static int create_depth_target(E*e){
  static const VkFormat candidates[]={
   VK_FORMAT_D32_SFLOAT,
   VK_FORMAT_D32_SFLOAT_S8_UINT,
@@ -582,12 +589,12 @@ static int create_depth_target_probe(E*e){
 
  if(e==NULL||e->gpu==VK_NULL_HANDLE||e->dev==VK_NULL_HANDLE||
     e->w==0u||e->h==0u){
-  ERR("Depth target probe skipped: invalid device or surface extent");
+  ERR("Depth target: invalid device or surface extent");
   return -1;
  }
  if(e->depth_image!=VK_NULL_HANDLE||e->depth_memory!=VK_NULL_HANDLE||
     e->depth_view!=VK_NULL_HANDLE){
-  ERR("Depth target probe skipped: handles were not empty");
+  ERR("Depth target: handles were not empty");
   return -1;
  }
 
@@ -607,7 +614,7 @@ static int create_depth_target_probe(E*e){
  image_info.format=e->depth_format;
  image_info.extent.width=e->w;
  image_info.extent.height=e->h;
- LOG("Depth target probe: creating image format=%d extent=%ux%u",
+ LOG("Depth target: creating image format=%d extent=%ux%u",
      (int)e->depth_format,e->w,e->h);
  result=vkCreateImage(e->dev,&image_info,NULL,&e->depth_image);
  if(result!=VK_SUCCESS)goto failed;
@@ -642,7 +649,7 @@ static int create_depth_target_probe(E*e){
  result=vkCreateImageView(e->dev,&view,NULL,&e->depth_view);
  if(result!=VK_SUCCESS)goto failed;
 
- LOG("Depth target probe ready: format=%d extent=%ux%u; not attached to render pass",
+ LOG("Depth target ready for render-pass attachment: format=%d extent=%ux%u",
      (int)e->depth_format,e->w,e->h);
  return 0;
 
@@ -679,9 +686,10 @@ static int create_sea_pipeline(E*e){
  VkPipelineMultisampleStateCreateInfo ms={.sType=VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT};
  VkPipelineColorBlendAttachmentState ba={.blendEnable=VK_FALSE,.colorWriteMask=VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT};
  VkPipelineColorBlendStateCreateInfo blend={.sType=VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,.attachmentCount=1,.pAttachments=&ba};
+ VkPipelineDepthStencilStateCreateInfo depth={.sType=VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,.depthTestEnable=VK_TRUE,.depthWriteEnable=VK_TRUE,.depthCompareOp=VK_COMPARE_OP_LESS,.depthBoundsTestEnable=VK_FALSE,.stencilTestEnable=VK_FALSE};
  VkDynamicState dyns[]={VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR};
  VkPipelineDynamicStateCreateInfo dynamic={.sType=VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,.dynamicStateCount=2,.pDynamicStates=dyns};
- VkGraphicsPipelineCreateInfo pi={.sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,.stageCount=2,.pStages=stages,.pVertexInputState=&vertex,.pInputAssemblyState=&assembly,.pViewportState=&viewport,.pRasterizationState=&raster,.pMultisampleState=&ms,.pColorBlendState=&blend,.pDynamicState=&dynamic,.layout=VK_NULL_HANDLE,.renderPass=e->rp,.subpass=0,.basePipelineIndex=-1};
+ VkGraphicsPipelineCreateInfo pi={.sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,.stageCount=2,.pStages=stages,.pVertexInputState=&vertex,.pInputAssemblyState=&assembly,.pViewportState=&viewport,.pRasterizationState=&raster,.pMultisampleState=&ms,.pDepthStencilState=&depth,.pColorBlendState=&blend,.pDynamicState=&dynamic,.layout=VK_NULL_HANDLE,.renderPass=e->rp,.subpass=0,.basePipelineIndex=-1};
  VkResult vr=VK_ERROR_INITIALIZATION_FAILED;
  LOG("SEA_STAGE pipeline: loading shaders");
  vs=shader(e,"shaders/sea.vert.spv");fs=shader(e,"shaders/sea.frag.spv");
@@ -695,14 +703,46 @@ static int create_sea_pipeline(E*e){
  LOG("SEA_STAGE pipeline: creating graphics pipeline");
  vr=vkCreateGraphicsPipelines(e->dev,VK_NULL_HANDLE,1,&pi,NULL,&e->sea_pipe);
  if(vr!=VK_SUCCESS){ERR("SEA_STAGE graphics-pipeline failed: VkResult=%d",(int)vr);goto done;}
- LOG("SEA_STAGE pipeline: ready (animated vertex waves; analytic normals; depth testing deferred)");
+ LOG("SEA_STAGE pipeline: ready (animated waves; depth test/write enabled)");
 done:
  if(vs)vkDestroyShaderModule(e->dev,vs,NULL);if(fs)vkDestroyShaderModule(e->dev,fs,NULL);
  if(vr!=VK_SUCCESS){
+  if(e->sun_pipe){vkDestroyPipeline(e->dev,e->sun_pipe,NULL);e->sun_pipe=VK_NULL_HANDLE;}
   if(e->sea_pipe){vkDestroyPipeline(e->dev,e->sea_pipe,NULL);e->sea_pipe=VK_NULL_HANDLE;}
   if(e->sea_layout){vkDestroyPipelineLayout(e->dev,e->sea_layout,NULL);e->sea_layout=VK_NULL_HANDLE;}
   return -1;
  }
+ return 0;
+}
+
+static int create_sun_pipeline(E*e){
+ VkShaderModule vs=VK_NULL_HANDLE,fs=VK_NULL_HANDLE;
+ VkPipelineShaderStageCreateInfo stages[2];
+ VkVertexInputBindingDescription binding={.binding=0,.stride=(uint32_t)sizeof(V),.inputRate=VK_VERTEX_INPUT_RATE_VERTEX};
+ VkVertexInputAttributeDescription attributes[4]={{0,0,VK_FORMAT_R32G32_SFLOAT,0},{1,0,VK_FORMAT_R32G32B32A32_SFLOAT,16},{2,0,VK_FORMAT_R32G32_SFLOAT,8},{3,0,VK_FORMAT_R32_SFLOAT,32}};
+ VkPipelineVertexInputStateCreateInfo vertex={.sType=VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,.vertexBindingDescriptionCount=1,.pVertexBindingDescriptions=&binding,.vertexAttributeDescriptionCount=4,.pVertexAttributeDescriptions=attributes};
+ VkPipelineInputAssemblyStateCreateInfo assembly={.sType=VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,.topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST};
+ VkPipelineViewportStateCreateInfo viewport={.sType=VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,.viewportCount=1,.scissorCount=1};
+ VkPipelineRasterizationStateCreateInfo raster={.sType=VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,.polygonMode=VK_POLYGON_MODE_FILL,.cullMode=VK_CULL_MODE_NONE,.frontFace=VK_FRONT_FACE_COUNTER_CLOCKWISE,.lineWidth=1.0f};
+ VkPipelineMultisampleStateCreateInfo ms={.sType=VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT};
+ VkPipelineDepthStencilStateCreateInfo depth={.sType=VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,.depthTestEnable=VK_TRUE,.depthWriteEnable=VK_FALSE,.depthCompareOp=VK_COMPARE_OP_LESS_OR_EQUAL,.depthBoundsTestEnable=VK_FALSE,.stencilTestEnable=VK_FALSE};
+ VkPipelineColorBlendAttachmentState ba={.blendEnable=VK_TRUE,.srcColorBlendFactor=VK_BLEND_FACTOR_SRC_ALPHA,.dstColorBlendFactor=VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,.colorBlendOp=VK_BLEND_OP_ADD,.srcAlphaBlendFactor=VK_BLEND_FACTOR_ONE,.dstAlphaBlendFactor=VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,.alphaBlendOp=VK_BLEND_OP_ADD,.colorWriteMask=15};
+ VkPipelineColorBlendStateCreateInfo blend={.sType=VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,.attachmentCount=1,.pAttachments=&ba};
+ VkDynamicState dyns[]={VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR};
+ VkPipelineDynamicStateCreateInfo dynamic={.sType=VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,.dynamicStateCount=2,.pDynamicStates=dyns};
+ VkGraphicsPipelineCreateInfo pi={.sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,.stageCount=2,.pStages=stages,.pVertexInputState=&vertex,.pInputAssemblyState=&assembly,.pViewportState=&viewport,.pRasterizationState=&raster,.pMultisampleState=&ms,.pDepthStencilState=&depth,.pColorBlendState=&blend,.pDynamicState=&dynamic,.layout=e->layout,.renderPass=e->rp,.subpass=0,.basePipelineIndex=-1};
+ VkResult vr=VK_ERROR_INITIALIZATION_FAILED;
+ vs=shader(e,"shaders/sun.vert.spv");fs=shader(e,"shaders/sun.frag.spv");
+ if(!vs||!fs)goto done;
+ stages[0]=(VkPipelineShaderStageCreateInfo){.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_VERTEX_BIT,.module=vs,.pName="main"};
+ stages[1]=(VkPipelineShaderStageCreateInfo){.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_FRAGMENT_BIT,.module=fs,.pName="main"};
+ vr=vkCreateGraphicsPipelines(e->dev,VK_NULL_HANDLE,1,&pi,NULL,&e->sun_pipe);
+ if(vr!=VK_SUCCESS)ERR("SEA_STAGE sun depth-pipeline failed: VkResult=%d",(int)vr);
+done:
+ if(vs)vkDestroyShaderModule(e->dev,vs,NULL);
+ if(fs)vkDestroyShaderModule(e->dev,fs,NULL);
+ if(vr!=VK_SUCCESS){if(e->sun_pipe){vkDestroyPipeline(e->dev,e->sun_pipe,NULL);e->sun_pipe=VK_NULL_HANDLE;}return -1;}
+ LOG("SEA_STAGE sun pipeline ready: depth-tested celestial disc");
  return 0;
 }
 
@@ -711,9 +751,10 @@ static int initialize_sea_renderer(E*e){
  if(!e||e->dev==VK_NULL_HANDLE||e->q==VK_NULL_HANDLE||e->rp==VK_NULL_HANDLE||e->w==0u||e->h==0u){
   ERR("SEA_STAGE activation rejected: incomplete Vulkan context");return -1;
  }
- LOG("SEA_STAGE depth-probe begin; extent=%ux%u",e->w,e->h);
- if(create_depth_target_probe(e)==0)LOG("SEA_STAGE depth-probe ready (diagnostic-only for this flat plane)");
- else ERR("SEA_STAGE depth-probe unavailable; continuing without depth");
+ if(e->depth_view==VK_NULL_HANDLE||e->depth_format==VK_FORMAT_UNDEFINED){
+  ERR("SEA_STAGE activation rejected: render-pass depth attachment is unavailable");return -1;
+ }
+ LOG("SEA_STAGE depth attachment ready; horizon occlusion enabled");
  LOG("SEA_STAGE mesh-upload begin; ocean grid=256x256 cells; extent=1200x1200 m");
  if(tg_sea_test_scene_create(e->gpu,e->dev,e->q,e->qf,&e->sea_scene,&upload_result)!=0){
   ERR("SEA_STAGE mesh-upload failed: VkResult=%d",(int)upload_result);goto failed;
@@ -766,12 +807,26 @@ static int setup(E*e){
  uint32_t ni=cp.minImageCount+1;if(cp.maxImageCount&&ni>cp.maxImageCount)ni=cp.maxImageCount;VkSwapchainCreateInfoKHR sw={.sType=VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,.surface=e->surface,.minImageCount=ni,.imageFormat=e->fmt,.imageColorSpace=sf.colorSpace,.imageExtent=cp.currentExtent,.imageArrayLayers=1,.imageUsage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,.imageSharingMode=VK_SHARING_MODE_EXCLUSIVE,.preTransform=chosenTransform,.compositeAlpha=VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,.presentMode=VK_PRESENT_MODE_FIFO_KHR,.clipped=VK_TRUE};if(vkCreateSwapchainKHR(e->dev,&sw,0,&e->sw))return -1;
  vkGetSwapchainImagesKHR(e->dev,e->sw,&e->n,0);e->imgs=malloc(e->n*sizeof(VkImage));vkGetSwapchainImagesKHR(e->dev,e->sw,&e->n,e->imgs);e->views=calloc(e->n,sizeof(VkImageView));e->fb=calloc(e->n,sizeof(VkFramebuffer));e->cmd=calloc(e->n,sizeof(VkCommandBuffer));
  for(uint32_t i=0;i<e->n;i++){VkImageViewCreateInfo vi={.sType=VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,.image=e->imgs[i],.viewType=VK_IMAGE_VIEW_TYPE_2D,.format=e->fmt,.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1}};if(vkCreateImageView(e->dev,&vi,0,&e->views[i]))return -1;}
- VkAttachmentDescription ad={.format=e->fmt,.samples=VK_SAMPLE_COUNT_1_BIT,.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR,.storeOp=VK_ATTACHMENT_STORE_OP_STORE,.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED,.finalLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR};VkAttachmentReference ar={0,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};VkSubpassDescription sub={.pipelineBindPoint=VK_PIPELINE_BIND_POINT_GRAPHICS,.colorAttachmentCount=1,.pColorAttachments=&ar};VkRenderPassCreateInfo ri={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,.attachmentCount=1,.pAttachments=&ad,.subpassCount=1,.pSubpasses=&sub};if(vkCreateRenderPass(e->dev,&ri,0,&e->rp))return -1;
+ if(create_depth_target(e)!=0){ERR("Vulkan depth attachment creation failed");return -1;}
+ VkAttachmentDescription ad[2]={
+  {.format=e->fmt,.samples=VK_SAMPLE_COUNT_1_BIT,.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR,.storeOp=VK_ATTACHMENT_STORE_OP_STORE,.stencilLoadOp=VK_ATTACHMENT_LOAD_OP_DONT_CARE,.stencilStoreOp=VK_ATTACHMENT_STORE_OP_DONT_CARE,.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED,.finalLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR},
+  {.format=e->depth_format,.samples=VK_SAMPLE_COUNT_1_BIT,.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR,.storeOp=VK_ATTACHMENT_STORE_OP_DONT_CARE,.stencilLoadOp=VK_ATTACHMENT_LOAD_OP_DONT_CARE,.stencilStoreOp=VK_ATTACHMENT_STORE_OP_DONT_CARE,.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED,.finalLayout=VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL}
+ };
+ VkAttachmentReference ar={0,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+ VkAttachmentReference dr={1,VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
+ VkSubpassDescription sub={.pipelineBindPoint=VK_PIPELINE_BIND_POINT_GRAPHICS,.colorAttachmentCount=1,.pColorAttachments=&ar,.pDepthStencilAttachment=&dr};
+ VkRenderPassCreateInfo ri={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,.attachmentCount=2,.pAttachments=ad,.subpassCount=1,.pSubpasses=&sub};
+ if(vkCreateRenderPass(e->dev,&ri,0,&e->rp))return -1;
  VkDescriptorSetLayoutBinding db[2]={{.binding=0,.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,.descriptorCount=1,.stageFlags=VK_SHADER_STAGE_FRAGMENT_BIT},{.binding=1,.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,.descriptorCount=1,.stageFlags=VK_SHADER_STAGE_FRAGMENT_BIT}};VkDescriptorSetLayoutCreateInfo dl={.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,.bindingCount=2,.pBindings=db};if(vkCreateDescriptorSetLayout(e->dev,&dl,0,&e->descriptor_layout))return -1;
  VkShaderModule vs=shader(e,"shaders/menu.vert.spv"),fsmod=shader(e,"shaders/menu.frag.spv");if(!vs||!fsmod)return -1;
  VkPipelineShaderStageCreateInfo st[2]={{.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_VERTEX_BIT,.module=vs,.pName="main"},{.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_FRAGMENT_BIT,.module=fsmod,.pName="main"}};
  VkVertexInputBindingDescription bd={0,sizeof(V),VK_VERTEX_INPUT_RATE_VERTEX};VkVertexInputAttributeDescription at[4]={{0,0,VK_FORMAT_R32G32_SFLOAT,0},{1,0,VK_FORMAT_R32G32B32A32_SFLOAT,16},{2,0,VK_FORMAT_R32G32_SFLOAT,8},{3,0,VK_FORMAT_R32_SFLOAT,32}};VkPipelineVertexInputStateCreateInfo vx={.sType=VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,.vertexBindingDescriptionCount=1,.pVertexBindingDescriptions=&bd,.vertexAttributeDescriptionCount=4,.pVertexAttributeDescriptions=at};VkPipelineInputAssemblyStateCreateInfo ia={.sType=VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,.topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST};VkPipelineViewportStateCreateInfo vp={.sType=VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,.viewportCount=1,.scissorCount=1};VkPipelineRasterizationStateCreateInfo rs={.sType=VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,.polygonMode=VK_POLYGON_MODE_FILL,.cullMode=VK_CULL_MODE_NONE,.lineWidth=1};VkPipelineMultisampleStateCreateInfo ms={.sType=VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT};VkPipelineColorBlendAttachmentState ba={.blendEnable=VK_TRUE,.srcColorBlendFactor=VK_BLEND_FACTOR_SRC_ALPHA,.dstColorBlendFactor=VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,.colorBlendOp=VK_BLEND_OP_ADD,.srcAlphaBlendFactor=VK_BLEND_FACTOR_ONE,.dstAlphaBlendFactor=VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,.alphaBlendOp=VK_BLEND_OP_ADD,.colorWriteMask=15};VkPipelineColorBlendStateCreateInfo cb={.sType=VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,.attachmentCount=1,.pAttachments=&ba};VkDynamicState dyns[]={VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR};VkPipelineDynamicStateCreateInfo dy={.sType=VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,.dynamicStateCount=2,.pDynamicStates=dyns};VkPipelineLayoutCreateInfo li={.sType=VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,.setLayoutCount=1,.pSetLayouts=&e->descriptor_layout};if(vkCreatePipelineLayout(e->dev,&li,0,&e->layout))return -1;VkGraphicsPipelineCreateInfo pi={.sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,.stageCount=2,.pStages=st,.pVertexInputState=&vx,.pInputAssemblyState=&ia,.pViewportState=&vp,.pRasterizationState=&rs,.pMultisampleState=&ms,.pColorBlendState=&cb,.pDynamicState=&dy,.layout=e->layout,.renderPass=e->rp};VkResult pkr=vkCreateGraphicsPipelines(e->dev,0,1,&pi,0,&e->pipe);vkDestroyShaderModule(e->dev,vs,0);vkDestroyShaderModule(e->dev,fsmod,0);if(pkr)return -1;
- for(uint32_t i=0;i<e->n;i++){VkFramebufferCreateInfo fi={.sType=VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,.renderPass=e->rp,.attachmentCount=1,.pAttachments=&e->views[i],.width=e->w,.height=e->h,.layers=1};if(vkCreateFramebuffer(e->dev,&fi,0,&e->fb[i]))return -1;}
+ if(create_sun_pipeline(e)!=0)return -1;
+ for(uint32_t i=0;i<e->n;i++){
+  VkImageView attachments[2]={e->views[i],e->depth_view};
+  VkFramebufferCreateInfo fi={.sType=VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,.renderPass=e->rp,.attachmentCount=2,.pAttachments=attachments,.width=e->w,.height=e->h,.layers=1};
+  if(vkCreateFramebuffer(e->dev,&fi,0,&e->fb[i]))return -1;
+ }
  VkCommandPoolCreateInfo pci={.sType=VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,.flags=VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,.queueFamilyIndex=e->qf};if(vkCreateCommandPool(e->dev,&pci,0,&e->pool))return -1;VkCommandBufferAllocateInfo cai={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,.commandPool=e->pool,.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY,.commandBufferCount=e->n};if(vkAllocateCommandBuffers(e->dev,&cai,e->cmd))return -1;
  VkBufferCreateInfo bi={.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,.size=sizeof(V)*MAXV,.usage=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,.sharingMode=VK_SHARING_MODE_EXCLUSIVE};if(vkCreateBuffer(e->dev,&bi,0,&e->vb))return -1;VkMemoryRequirements mr;vkGetBufferMemoryRequirements(e->dev,e->vb,&mr);uint32_t mt=memtype(e,mr.memoryTypeBits,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);if(mt==UINT32_MAX)return -1;VkMemoryAllocateInfo mai={.sType=VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,.allocationSize=mr.size,.memoryTypeIndex=mt};if(vkAllocateMemory(e->dev,&mai,0,&e->vm))return -1;vkBindBufferMemory(e->dev,e->vb,e->vm,0);
  /* Experimental 2D texture assets are intentionally excluded from engine startup. */
@@ -814,9 +869,11 @@ static void frame(E*e){
  if(vr!=VK_SUCCESS){ERR("FRAME reset-command-buffer failed: VkResult=%d",(int)vr);return;}
  VkCommandBufferBeginInfo begin={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
  vr=vkBeginCommandBuffer(cb,&begin);if(vr!=VK_SUCCESS){ERR("FRAME begin-command-buffer failed: VkResult=%d",(int)vr);return;}
- VkClearValue clear={.color={{.035f,.052f,.07f,1.0f}}};
+ VkClearValue clear[2]={0};
+ clear[0].color=(VkClearColorValue){{.035f,.052f,.07f,1.0f}};
+ clear[1].depthStencil.depth=1.0f;clear[1].depthStencil.stencil=0u;
  VkRenderPassBeginInfo rp={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,.renderPass=e->rp,.framebuffer=e->fb[ix],
-  .renderArea={{0,0},{e->w,e->h}},.clearValueCount=1,.pClearValues=&clear};
+  .renderArea={{0,0},{e->w,e->h}},.clearValueCount=2,.pClearValues=clear};
  vkCmdBeginRenderPass(cb,&rp,VK_SUBPASS_CONTENTS_INLINE);
  VkViewport viewport={0.0f,0.0f,(float)e->w,(float)e->h,0.0f,1.0f};VkRect2D scissor={{0,0},{e->w,e->h}};
  vkCmdSetViewport(cb,0,1,&viewport);vkCmdSetScissor(cb,0,1,&scissor);
@@ -855,11 +912,18 @@ static void frame(E*e){
    }else ERR("SEA_STAGE draw skipped: GPU buffer is null");
   }else ERR("SEA_STAGE draw skipped: scene mesh is null");
  }
+ if(e->scene==2&&e->sun_nv>0u&&e->sun_pipe!=VK_NULL_HANDLE){
+  vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,e->sun_pipe);
+  VkDeviceSize sun_offset=0;
+  vkCmdBindVertexBuffers(cb,0,1,&e->vb,&sun_offset);
+  vkCmdDraw(cb,e->sun_nv,1,e->sun_start,0);
+ }
  vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,e->pipe);VkDeviceSize offset=0;
  vkCmdBindVertexBuffers(cb,0,1,&e->vb,&offset);
  if(e->scene==2&&e->sky_nv>0u){
-  uint32_t overlay_count=e->nv-e->sky_nv;
-  if(overlay_count)vkCmdDraw(cb,overlay_count,1,e->sky_nv,0);
+  uint32_t overlay_start=e->sun_start+e->sun_nv;
+  uint32_t overlay_count=e->nv-overlay_start;
+  if(overlay_count)vkCmdDraw(cb,overlay_count,1,overlay_start,0);
  }else{
   vkCmdDraw(cb,e->nv,1,0,0);
  }
@@ -881,6 +945,7 @@ static void frame(E*e){
 static void closevk(E*e){
  if(e->dev)vkDeviceWaitIdle(e->dev);
  if(e->dev){
+  if(e->sun_pipe){vkDestroyPipeline(e->dev,e->sun_pipe,NULL);e->sun_pipe=VK_NULL_HANDLE;}
   if(e->sea_pipe){vkDestroyPipeline(e->dev,e->sea_pipe,NULL);e->sea_pipe=VK_NULL_HANDLE;}
   if(e->sea_layout){vkDestroyPipelineLayout(e->dev,e->sea_layout,NULL);e->sea_layout=VK_NULL_HANDLE;}
   if(e->sea_scene){tg_sea_test_scene_destroy(e->dev,e->sea_scene);e->sea_scene=NULL;}

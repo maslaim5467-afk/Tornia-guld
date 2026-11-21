@@ -33,6 +33,8 @@ glslc assets/shaders/menu.vert -o assets/shaders/menu.vert.spv
 glslc assets/shaders/menu.frag -o assets/shaders/menu.frag.spv
 glslc assets/shaders/sea.vert -o assets/shaders/sea.vert.spv
 glslc assets/shaders/sea.frag -o assets/shaders/sea.frag.spv
+glslc assets/shaders/sun.vert -o assets/shaders/sun.vert.spv
+glslc assets/shaders/sun.frag -o assets/shaders/sun.frag.spv
 
 mkdir -p build/lib/arm64-v8a
 rm -f build/*.apk
