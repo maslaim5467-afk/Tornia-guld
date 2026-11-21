@@ -65,7 +65,11 @@ void main() {
 
     float nv = max(dot(n, v), 0.0);
     float nl = max(dot(n, l), 0.0);
-    float roughness = clamp(0.075 + abs(inHeight) * 0.018, 0.055, 0.22);
+
+    // Wave slope broadens highlights on steeper facets; calmer facets stay glossy.
+    float slope = 1.0 - clamp(n.y, 0.0, 1.0);
+    float roughness = clamp(0.095 + slope * 0.19
+                          + abs(inHeight) * 0.006, 0.085, 0.32);
 
     vec3 f = fresnelSchlick(nv, WATER_F0);
     float d = distributionGGX(n, h, roughness);
@@ -80,11 +84,19 @@ void main() {
     vec3 shallowWater = vec3(0.018, 0.22, 0.32);
     float crest = clamp(inHeight * 0.55 + 0.5, 0.0, 1.0);
     vec3 waterDiffuse = mix(deepWater, shallowWater, crest * 0.42);
-    waterDiffuse *= 0.30 + 0.70 * nl;
 
+    // Low-energy hemispherical sky fill prevents the unlit side becoming black.
+    float skyAmount = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);
+    vec3 ambientSky = mix(vec3(0.018, 0.045, 0.075),
+                          vec3(0.075, 0.15, 0.22), skyAmount);
+    vec3 ambientFill = waterDiffuse * ambientSky * 2.2;
+
+    // Keep direct sunlight directional; ambient fill is independent of sun angle.
+    vec3 diffuseSun = waterDiffuse * vec3(1.0, 0.88, 0.72) * nl * 0.22;
     vec3 directSun = vec3(1.0, 0.82, 0.62) * specular * nl * 5.0;
     vec3 reflectedSky = environment * f;
-    vec3 color = waterDiffuse * (1.0 - f) + reflectedSky + directSun;
+    vec3 color = ambientFill + diffuseSun * (1.0 - f)
+               + reflectedSky + directSun;
 
     /* Keep a restrained glint where the sun aligns with the reflected view. */
     float sunGlint = pow(max(dot(reflect(-l, n), v), 0.0), 180.0);
