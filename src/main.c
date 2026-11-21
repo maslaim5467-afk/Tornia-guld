@@ -833,8 +833,8 @@ static void frame(E*e){
     sea_push.camera_position[3]=1.0f;
     /* Sunrise direction: toward the fixed low sun on the forward horizon. */
     sea_push.sun_direction[0]=0.0f;
-    sea_push.sun_direction[1]=0.025f;
-    sea_push.sun_direction[2]=-0.9997f;
+    sea_push.sun_direction[1]=0.0172f;
+    sea_push.sun_direction[2]=-0.99985f;
     sea_push.sun_direction[3]=0.0f;
     vkCmdPushConstants(cb,e->sea_layout,
         VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT,
