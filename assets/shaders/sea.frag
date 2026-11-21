@@ -13,7 +13,13 @@ layout(location = 2) in vec3 inWorldPosition;
 layout(location = 0) out vec4 outColor;
 
 const float SEA_PI = 3.14159265359;
-const vec3 WATER_F0 = vec3(0.0204, 0.0204, 0.0204);
+const float SEA_IOR = 1.333;
+const float PREVIEW_WATER_DEPTH = 8.0; // assumed optical depth, metres
+const vec3 WATER_F0 = vec3(0.0204);
+
+/* Approximate clear-ocean absorption coefficients, per metre (RGB). */
+const vec3 WATER_ABSORPTION = vec3(0.16, 0.055, 0.022);
+const vec3 WATER_IN_SCATTER = vec3(0.004, 0.048, 0.095);
 
 float distributionGGX(vec3 n, vec3 h, float roughness) {
     float a = roughness * roughness;
@@ -56,6 +62,23 @@ vec3 sampleSky(vec3 direction, vec3 sunDirection) {
     return sky;
 }
 
+/*
+ * Beer-Lambert attenuation over a preview-only water column.
+ * The refracted view ray determines the optical path through an assumed
+ * constant-depth slab. Since no seabed/bathymetry exists yet, this produces
+ * a physically motivated color/absorption preview, not real underwater
+ * visibility or bottom rendering.
+ */
+vec3 applyWaterAbsorption(vec3 bodyRadiance, vec3 normal, vec3 viewDirection) {
+    vec3 refractedView = refract(-viewDirection, normal, 1.0 / SEA_IOR);
+    float downwardCosine = max(-refractedView.y, 0.12);
+    float opticalPath = min(PREVIEW_WATER_DEPTH / downwardCosine, 60.0);
+    vec3 transmittance = exp(-WATER_ABSORPTION * opticalPath);
+    vec3 absorbedBody = bodyRadiance * transmittance;
+    vec3 inScattered = WATER_IN_SCATTER * (1.0 - transmittance);
+    return absorbedBody + inScattered;
+}
+
 void main() {
     vec3 n = normalize(inNormal);
     vec3 cameraPosition = lighting.cameraPosition.xyz;
@@ -85,20 +108,23 @@ void main() {
     float crest = clamp(inHeight * 0.55 + 0.5, 0.0, 1.0);
     vec3 waterDiffuse = mix(deepWater, shallowWater, crest * 0.42);
 
+    // Attenuate only the transmitted/body-water component; surface reflection
+    // and the direct sun glint remain separate from the water-column absorption.
+    vec3 absorbedWater = applyWaterAbsorption(waterDiffuse, n, v);
+
     // Low-energy hemispherical sky fill prevents the unlit side becoming black.
     float skyAmount = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);
     vec3 ambientSky = mix(vec3(0.018, 0.045, 0.075),
                           vec3(0.075, 0.15, 0.22), skyAmount);
-    vec3 ambientFill = waterDiffuse * ambientSky * 2.2;
+    vec3 ambientFill = absorbedWater * ambientSky * 2.2;
 
     // Keep direct sunlight directional; ambient fill is independent of sun angle.
-    vec3 diffuseSun = waterDiffuse * vec3(1.0, 0.88, 0.72) * nl * 0.22;
+    vec3 diffuseSun = absorbedWater * vec3(1.0, 0.88, 0.72) * nl * 0.22;
     vec3 directSun = vec3(1.0, 0.82, 0.62) * specular * nl * 5.0;
     vec3 reflectedSky = environment * f;
     vec3 color = ambientFill + diffuseSun * (1.0 - f)
                + reflectedSky + directSun;
 
-    /* Keep a restrained glint where the sun aligns with the reflected view. */
     float sunGlint = pow(max(dot(reflect(-l, n), v), 0.0), 180.0);
     color += vec3(1.0, 0.84, 0.64) * sunGlint * 0.32;
 
