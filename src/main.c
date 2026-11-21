@@ -36,7 +36,9 @@ typedef struct {
  TgSeaTestScene *sea_scene; TgCamera3D sea_camera;
  VkPipeline sea_pipe; VkPipelineLayout sea_layout;
  int sea_renderer_attempted,sea_renderer_ready,sea_draw_logged;
-  float sea_time_seconds,sea_yaw,sea_pitch,sea_radius;
+  float sea_time_seconds,sea_yaw,sea_pitch;
+ int sea_touch_mode,sea_pointer_a,sea_pointer_b;
+ float sea_touch_x,sea_touch_y,sea_touch_distance;
  VkBuffer vb; VkDeviceMemory vm; VkSemaphore semA,semB; VkFence fence;
  VkImage atlas; VkDeviceMemory atlas_mem; VkImageView atlas_view; VkSampler atlas_sampler;
  VkImage sprite_image; VkDeviceMemory sprite_memory; VkImageView sprite_view; VkSampler sprite_sampler;
@@ -48,6 +50,31 @@ typedef struct {
  int joystick_active,joystick_pointer_id,camera_pointer_id;
 
 } E;
+
+static TgVec3 sea_camera_forward(const E*e){
+ float cp=cosf(e->sea_pitch);
+ return tg_vec3(sinf(e->sea_yaw)*cp,sinf(e->sea_pitch),-cosf(e->sea_yaw)*cp);
+}
+static void sea_camera_rebuild(E*e){
+ TgVec3 forward=sea_camera_forward(e);
+ TgVec3 target=tg_vec3(e->sea_camera.position.x+forward.x,
+                       e->sea_camera.position.y+forward.y,
+                       e->sea_camera.position.z+forward.z);
+ if(tg_camera3d_set_pose(&e->sea_camera,e->sea_camera.position,target,
+                         tg_vec3(0.0f,1.0f,0.0f))!=0)
+  ERR("SEA_STAGE free-camera pose update failed");
+}
+static void sea_camera_translate(E*e,float right_amount,float up_amount,float forward_amount){
+ float cy=cosf(e->sea_yaw),sy=sinf(e->sea_yaw);
+ float cp=cosf(e->sea_pitch),sp=sinf(e->sea_pitch);
+ TgVec3 right=tg_vec3(cy,0.0f,sy);
+ TgVec3 up=tg_vec3(-sy*sp,cp,cy*sp);
+ TgVec3 forward=sea_camera_forward(e);
+ e->sea_camera.position.x+=right.x*right_amount+up.x*up_amount+forward.x*forward_amount;
+ e->sea_camera.position.y+=right.y*right_amount+up.y*up_amount+forward.y*forward_amount;
+ e->sea_camera.position.z+=right.z*right_amount+up.z*up_amount+forward.z*forward_amount;
+ sea_camera_rebuild(e);
+}
 static void push(E*e,float x,float y,float w,float h,float r,float g,float b){
  float l=x*2/e->w-1,rr=(x+w)*2/e->w-1,t=y*2/e->h-1,bb=(y+h)*2/e->h-1;
  V a={l,t,0,0,r,g,b,1,0},c={rr,t,0,0,r,g,b,1,0},d={rr,bb,0,0,r,g,b,1,0},f={l,bb,0,0,r,g,b,1,0};
@@ -272,12 +299,8 @@ static void menu(E*e){
 static void push_preview_sun(E*e){
  if(!e->sea_renderer_ready||e->w==0||e->h==0)return;
 
- /* Keep this direction identical to the current water-light direction. */
- const float sun_x=-0.35f,sun_y=0.82f,sun_z=0.44f;
- const float sun_distance=30.0f;
- float world_x=sun_x*sun_distance;
- float world_y=sun_y*sun_distance;
- float world_z=sun_z*sun_distance;
+ /* Fixed world-space sunrise position, shared with the water-light vector. */
+ const float world_x=0.0f,world_y=5.5f,world_z=-320.0f;
  const float*m=e->sea_camera.view_projection.m;
 
  /* Column-major view-projection transform: project the sun's world position. */
@@ -293,7 +316,7 @@ static void push_preview_sun(E*e){
  float sy=(ndc_y*0.5f+0.5f)*(float)e->h;
 
  /* A restrained screen-space disc: visual marker only, not a light source. */
- float radius=(float)(e->h<e->w?e->h:e->w)*0.018f;
+ float radius=(float)(e->h<e->w?e->h:e->w)*0.014f;
  push_disk(e,sx,sy,radius*3.2f,1.0f,.48f,.20f,.045f);
  push_disk(e,sx,sy,radius*2.0f,1.0f,.62f,.30f,.10f);
  push_disk(e,sx,sy,radius,1.0f,.86f,.62f,.96f);
@@ -662,7 +685,7 @@ static int initialize_sea_renderer(E*e){
  LOG("SEA_STAGE depth-probe begin; extent=%ux%u",e->w,e->h);
  if(create_depth_target_probe(e)==0)LOG("SEA_STAGE depth-probe ready (diagnostic-only for this flat plane)");
  else ERR("SEA_STAGE depth-probe unavailable; continuing without depth");
- LOG("SEA_STAGE mesh-upload begin; subdivided sea grid=96x48 cells");
+ LOG("SEA_STAGE mesh-upload begin; ocean grid=256x256 cells; extent=1200x1200 m");
  if(tg_sea_test_scene_create(e->gpu,e->dev,e->q,e->qf,&e->sea_scene,&upload_result)!=0){
   ERR("SEA_STAGE mesh-upload failed: VkResult=%d",(int)upload_result);goto failed;
  }
@@ -675,17 +698,19 @@ static int initialize_sea_renderer(E*e){
      (unsigned)tg_gpu_mesh_vk_memory_properties(mesh));
  LOG("SEA_STAGE camera initialization begin");
  e->sea_yaw=0.0f;
- e->sea_pitch=1.22f;
- e->sea_radius=18.0f;
+ e->sea_pitch=-0.025f;
  {
-  float horizontal=e->sea_radius*cosf(e->sea_pitch);
-  TgVec3 camera_position=tg_vec3(sinf(e->sea_yaw)*horizontal,
-                                 e->sea_radius*sinf(e->sea_pitch),
-                                 cosf(e->sea_yaw)*horizontal);
-  if(tg_camera3d_init(&e->sea_camera,camera_position,tg_vec3(0.0f,0.0f,0.0f),
-                      tg_vec3(0.0f,1.0f,0.0f),0.92f,(float)e->w/(float)e->h,0.1f,100.0f)!=0){
+  TgVec3 camera_position=tg_vec3(0.0f,7.0f,35.0f);
+  TgVec3 forward=sea_camera_forward(e);
+  TgVec3 target=tg_vec3(camera_position.x+forward.x,
+                        camera_position.y+forward.y,
+                        camera_position.z+forward.z);
+  if(tg_camera3d_init(&e->sea_camera,camera_position,target,
+                      tg_vec3(0.0f,1.0f,0.0f),0.92f,
+                      (float)e->w/(float)e->h,0.1f,2500.0f)!=0){
    ERR("SEA_STAGE camera initialization failed");goto failed;
   }
+  e->sea_touch_mode=0;e->sea_pointer_a=-1;e->sea_pointer_b=-1;
  }
  if(create_sea_pipeline(e)!=0)goto failed;
  e->sea_renderer_ready=1;
@@ -780,10 +805,10 @@ static void frame(E*e){
     sea_push.camera_position[1]=e->sea_camera.position.y;
     sea_push.camera_position[2]=e->sea_camera.position.z;
     sea_push.camera_position[3]=1.0f;
-    /* Preview sun: fixed world-space direction, later driven by game time. */
-    sea_push.sun_direction[0]=-0.35f;
-    sea_push.sun_direction[1]=0.82f;
-    sea_push.sun_direction[2]=0.44f;
+    /* Sunrise direction: toward the fixed low sun on the forward horizon. */
+    sea_push.sun_direction[0]=0.0f;
+    sea_push.sun_direction[1]=0.025f;
+    sea_push.sun_direction[2]=-0.9997f;
     sea_push.sun_direction[3]=0.0f;
     vkCmdPushConstants(cb,e->sea_layout,
         VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -868,36 +893,64 @@ static int32_t input(struct android_app*a,AInputEvent*ev){
  float y=AMotionEvent_getY(ev,(size_t)pointer_index);
 
  if(e->scene==2&&e->sea_renderer_ready){
-  if(action==AMOTION_EVENT_ACTION_DOWN||action==AMOTION_EVENT_ACTION_POINTER_DOWN){
-   if(!e->dragging){e->dragging=1;e->camera_pointer_id=pointer_id;e->last_x=x;e->last_y=y;}
+  if(action==AMOTION_EVENT_ACTION_DOWN){
+   e->sea_touch_mode=1;e->dragging=1;e->camera_pointer_id=pointer_id;
+   e->last_x=x;e->last_y=y;e->sea_pointer_a=pointer_id;e->sea_pointer_b=-1;
+   return 1;
+  }
+  if(action==AMOTION_EVENT_ACTION_POINTER_DOWN&&count>=2u){
+   e->sea_touch_mode=2;e->dragging=0;
+   e->sea_pointer_a=AMotionEvent_getPointerId(ev,0);
+   e->sea_pointer_b=AMotionEvent_getPointerId(ev,1);
+   float ax=AMotionEvent_getX(ev,0),ay=AMotionEvent_getY(ev,0);
+   float bx=AMotionEvent_getX(ev,1),by=AMotionEvent_getY(ev,1);
+   e->sea_touch_x=(ax+bx)*0.5f;e->sea_touch_y=(ay+by)*0.5f;
+   e->sea_touch_distance=hypotf(bx-ax,by-ay);
    return 1;
   }
   if(action==AMOTION_EVENT_ACTION_MOVE){
-   for(size_t i=0;i<count;i++){
-    int id=AMotionEvent_getPointerId(ev,i);
-    if(e->dragging&&id==e->camera_pointer_id){
-     float dx=AMotionEvent_getX(ev,i)-e->last_x;
-     float dy=AMotionEvent_getY(ev,i)-e->last_y;
-     e->sea_yaw-=dx*0.008f;
-     e->sea_pitch+=dy*0.008f;
-     if(e->sea_pitch<0.18f)e->sea_pitch=0.18f;
-     if(e->sea_pitch>1.48f)e->sea_pitch=1.48f;
-     e->last_x=AMotionEvent_getX(ev,i);e->last_y=AMotionEvent_getY(ev,i);
-     float horizontal=e->sea_radius*cosf(e->sea_pitch);
-     TgVec3 position=tg_vec3(sinf(e->sea_yaw)*horizontal,
-                             e->sea_radius*sinf(e->sea_pitch),
-                             cosf(e->sea_yaw)*horizontal);
-     if(tg_camera3d_set_pose(&e->sea_camera,position,tg_vec3(0.0f,0.0f,0.0f),
-                             tg_vec3(0.0f,1.0f,0.0f))!=0)
-      ERR("SEA_STAGE camera orbit update failed");
+   if(count>=2u&&e->sea_touch_mode==2){
+    float ax=AMotionEvent_getX(ev,0),ay=AMotionEvent_getY(ev,0);
+    float bx=AMotionEvent_getX(ev,1),by=AMotionEvent_getY(ev,1);
+    float cx=(ax+bx)*0.5f,cy=(ay+by)*0.5f;
+    float distance=hypotf(bx-ax,by-ay);
+    float scale=(float)(e->w<e->h?e->w:e->h);
+    float sensitivity=scale>0.0f?18.0f/scale:0.018f;
+    sea_camera_translate(e,(e->sea_touch_x-cx)*sensitivity,
+                           (cy-e->sea_touch_y)*sensitivity,
+                           (distance-e->sea_touch_distance)*sensitivity*0.75f);
+    e->sea_touch_x=cx;e->sea_touch_y=cy;e->sea_touch_distance=distance;
+   }else if(count==1u&&e->sea_touch_mode==1&&e->dragging){
+    int id=AMotionEvent_getPointerId(ev,0);
+    if(id==e->camera_pointer_id){
+     float px=AMotionEvent_getX(ev,0),py=AMotionEvent_getY(ev,0);
+     float dx=px-e->last_x,dy=py-e->last_y;
+     e->sea_yaw-=dx*0.0055f;
+     e->sea_pitch-=dy*0.0050f;
+     if(e->sea_pitch < -1.48f)e->sea_pitch=-1.48f;
+     if(e->sea_pitch >  1.48f)e->sea_pitch= 1.48f;
+     e->last_x=px;e->last_y=py;
+     sea_camera_rebuild(e);
     }
    }
    return 1;
   }
-  if(action==AMOTION_EVENT_ACTION_UP||action==AMOTION_EVENT_ACTION_POINTER_UP||
-     action==AMOTION_EVENT_ACTION_CANCEL){
-   if(e->dragging&&pointer_id==e->camera_pointer_id){e->dragging=0;e->camera_pointer_id=-1;}
+  if(action==AMOTION_EVENT_ACTION_POINTER_UP&&count>=2u){
+   int remaining=-1;float rx=0.0f,ry=0.0f;
+   for(size_t i=0;i<count;i++){
+    int id=AMotionEvent_getPointerId(ev,i);
+    if(id!=pointer_id){remaining=id;rx=AMotionEvent_getX(ev,i);ry=AMotionEvent_getY(ev,i);break;}
+   }
+   if(remaining>=0){
+    e->sea_touch_mode=1;e->dragging=1;e->camera_pointer_id=remaining;
+    e->last_x=rx;e->last_y=ry;e->sea_pointer_a=remaining;e->sea_pointer_b=-1;
+   }
    return 1;
+  }
+  if(action==AMOTION_EVENT_ACTION_UP||action==AMOTION_EVENT_ACTION_CANCEL||
+     action==AMOTION_EVENT_ACTION_POINTER_UP){
+   e->sea_touch_mode=0;e->dragging=0;e->camera_pointer_id=-1;
+   e->sea_pointer_a=-1;e->sea_pointer_b=-1;return 1;
   }
   return 1;
  }
