@@ -328,7 +328,7 @@ static void menu(E*e){
 static void push_preview_sun(E*e){
  if(!e->sea_renderer_ready||e->w==0u||e->h==0u)return;
  /* Project a distant point on the fixed celestial ray for screen position and depth. */
- const float sun_x=0.0f,sun_y=0.0172f,sun_z=-0.99985f;
+ const float sun_x=0.0f,sun_y=-0.0109f,sun_z=-0.99994f;
  const float sun_distance=1000.0f;
  const float world_x=e->sea_camera.position.x+sun_x*sun_distance;
  const float world_y=e->sea_camera.position.y+sun_y*sun_distance;
@@ -344,7 +344,7 @@ static void push_preview_sun(E*e){
  float sx=(ndc_x*0.5f+0.5f)*(float)e->w;
  float sy=(ndc_y*0.5f+0.5f)*(float)e->h;
  float sun_depth=clip_z/clip_w;
- float radius=(float)(e->h<e->w?e->h:e->w)*0.014f;
+ float radius=(0.00465f/tanf(e->sea_camera.vertical_fov_radians*0.5f))*(float)e->h*0.5f;
  /* The disc carries the sun's projected depth; the ocean depth test clips it at the horizon. */
  push_depth_disk(e,sx,sy,radius*3.2f,sun_depth,1.0f,.48f,.20f,.045f);
  push_depth_disk(e,sx,sy,radius*2.0f,sun_depth,1.0f,.62f,.30f,.10f);
@@ -899,8 +899,8 @@ static void frame(E*e){
     sea_push.camera_position[3]=1.0f;
     /* Sunrise direction: toward the fixed low sun on the forward horizon. */
     sea_push.sun_direction[0]=0.0f;
-    sea_push.sun_direction[1]=0.0172f;
-    sea_push.sun_direction[2]=-0.99985f;
+    sea_push.sun_direction[1]=-0.0109f;
+    sea_push.sun_direction[2]=-0.99994f;
     sea_push.sun_direction[3]=0.0f;
     vkCmdPushConstants(cb,e->sea_layout,
         VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT,
