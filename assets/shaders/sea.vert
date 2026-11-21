@@ -5,6 +5,8 @@ layout(location = 0) in vec3 inPosition;
 layout(push_constant) uniform SeaCamera {
     mat4 viewProjection;
     vec4 wave; // x = elapsed seconds
+    vec4 cameraPosition;
+    vec4 sunDirection;
 } camera;
 
 layout(location = 0) out vec3 outNormal;
