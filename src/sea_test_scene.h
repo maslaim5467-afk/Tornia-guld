@@ -7,10 +7,10 @@
 extern "C" {
 #endif
 
-#define TG_SEA_TEST_SCENE_WIDTH 40.0f
-#define TG_SEA_TEST_SCENE_DEPTH 20.0f
-#define TG_SEA_TEST_SCENE_COLUMNS 128u
-#define TG_SEA_TEST_SCENE_ROWS 64u
+#define TG_SEA_TEST_SCENE_WIDTH 1200.0f
+#define TG_SEA_TEST_SCENE_DEPTH 1200.0f
+#define TG_SEA_TEST_SCENE_COLUMNS 256u
+#define TG_SEA_TEST_SCENE_ROWS 256u
 
 typedef struct TgSeaTestScene TgSeaTestScene;
 
