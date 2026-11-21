@@ -624,7 +624,7 @@ static int initialize_sea_renderer(E*e){
  LOG("SEA_STAGE depth-probe begin; extent=%ux%u",e->w,e->h);
  if(create_depth_target_probe(e)==0)LOG("SEA_STAGE depth-probe ready (diagnostic-only for this flat plane)");
  else ERR("SEA_STAGE depth-probe unavailable; continuing without depth");
- LOG("SEA_STAGE mesh-upload begin; bounded plane=20x20");
+ LOG("SEA_STAGE mesh-upload begin; bounded landscape plane=40x20");
  if(tg_sea_test_scene_create(e->gpu,e->dev,e->q,e->qf,&e->sea_scene,&upload_result)!=0){
   ERR("SEA_STAGE mesh-upload failed: VkResult=%d",(int)upload_result);goto failed;
  }
@@ -636,8 +636,8 @@ static int initialize_sea_renderer(E*e){
      tg_gpu_mesh_vk_index_count(mesh),tg_gpu_mesh_vk_used_staging(mesh)==VK_TRUE?"staging":"direct",
      (unsigned)tg_gpu_mesh_vk_memory_properties(mesh));
  LOG("SEA_STAGE camera initialization begin");
- if(tg_camera3d_init(&e->sea_camera,tg_vec3(0.0f,8.0f,12.0f),tg_vec3(0.0f,0.0f,0.0f),
-                     tg_vec3(0.0f,1.0f,0.0f),1.04719755f,(float)e->w/(float)e->h,0.1f,100.0f)!=0){
+ if(tg_camera3d_init(&e->sea_camera,tg_vec3(0.0f,17.32f,0.0f),tg_vec3(0.0f,0.0f,0.0f),
+                     tg_vec3(0.0f,0.0f,-1.0f),1.04719755f,(float)e->w/(float)e->h,0.1f,100.0f)!=0){
   ERR("SEA_STAGE camera initialization failed");goto failed;
  }
  if(create_sea_pipeline(e)!=0)goto failed;
