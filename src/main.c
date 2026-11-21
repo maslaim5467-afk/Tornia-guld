@@ -44,7 +44,7 @@ typedef struct {
  VkImage sprite_image; VkDeviceMemory sprite_memory; VkImageView sprite_view; VkSampler sprite_sampler;
  uint32_t sprite_width,sprite_height; AnimationSet animations; AnimationController player_animation; int sprite_ready,world_resources_ready; uint64_t last_frame_ns;
  VkDescriptorSetLayout descriptor_layout; VkDescriptorPool descriptor_pool; VkDescriptorSet descriptor_set;
- V v[MAXV]; uint32_t nv; int ready,notice,scene,dragging,world_logged;
+ V v[MAXV]; uint32_t nv,sky_nv; int ready,notice,scene,dragging,world_logged;
  World world; WorldCamera camera; float last_x,last_y;
  Player player; int camera_follow_enabled;
  int joystick_active,joystick_pointer_id,camera_pointer_id;
@@ -81,6 +81,20 @@ static void push(E*e,float x,float y,float w,float h,float r,float g,float b){
  if(e->nv+6>MAXV)return;e->v[e->nv++]=a;e->v[e->nv++]=c;e->v[e->nv++]=d;e->v[e->nv++]=a;e->v[e->nv++]=d;e->v[e->nv++]=f;
 }
 
+static void push_sky_band(E*e,float y0,float y1,
+                         float tr,float tg,float tb,
+                         float br,float bg,float bb){
+ float top=y0*2.0f/(float)e->h-1.0f;
+ float bottom=y1*2.0f/(float)e->h-1.0f;
+ float left=-1.0f,right=1.0f;
+ V a={left,top,0,0,tr,tg,tb,1,0};
+ V b={right,top,0,0,tr,tg,tb,1,0};
+ V c={right,bottom,0,0,br,bg,bb,1,0};
+ V d={left,bottom,0,0,br,bg,bb,1,0};
+ if(e->nv+6u>MAXV)return;
+ e->v[e->nv++]=a;e->v[e->nv++]=b;e->v[e->nv++]=c;
+ e->v[e->nv++]=a;e->v[e->nv++]=c;e->v[e->nv++]=d;
+}
 static void push_disk(E*e,float cx,float cy,float radius,float r,float g,float b,float a){
  const unsigned segments=28u;
  for(unsigned i=0;i<segments;i++){
@@ -248,7 +262,7 @@ static int load_animation_config(E*e,const char*path){
 }
 
 static void draw_world(E*e){
- e->nv=0;
+ e->nv=0;e->sky_nv=0;
  push(e,0,0,e->w,e->h,.055f,.13f,.065f);
  const float tile_px=WORLD_TILE_SIZE*e->camera.zoom;
  for(uint32_t y=0;y<WORLD_HEIGHT;y++)for(uint32_t x=0;x<WORLD_WIDTH;x++){
@@ -286,7 +300,7 @@ static void draw_world(E*e){
 }
 
 static void menu(E*e){
- e->nv=0;float cx=e->w*.5f,bw=e->w*.36f,bh=e->h*.14f,bx=cx-bw/2,by=e->h*.52f;
+ e->nv=0;e->sky_nv=0;float cx=e->w*.5f,bw=e->w*.36f,bh=e->h*.14f,bx=cx-bw/2,by=e->h*.52f;
  push(e,0,0,e->w,e->h,.035f,.052f,.07f);
  label(e,"TORNIA_GULD",cx-84,e->h*.20f,4,.91f,.82f,.63f);
  
@@ -322,9 +336,15 @@ static void push_preview_sun(E*e){
  push_disk(e,sx,sy,radius,1.0f,.86f,.62f,.96f);
 }
 static void draw_building(E*e){
- e->nv=0;
+ e->nv=0;e->sky_nv=0;
  float cx=(float)e->w*.5f;
- /* Keep the 3D sea visible behind the lightweight BUILDING overlay. */
+ /* Two interpolated bands form a simple dawn sky behind the ocean. */
+ push_sky_band(e,0.0f,(float)e->h*0.52f,
+               .012f,.030f,.085f,.72f,.25f,.105f);
+ push_sky_band(e,(float)e->h*0.52f,(float)e->h,
+               .72f,.25f,.105f,.16f,.055f,.085f);
+ e->sky_nv=e->nv;
+ /* Keep the sunrise marker and BUILDING overlay in front of the water. */
  push_preview_sun(e);
  label(e,"TORNIA_GULD",cx-84,e->h*.27f,4,.91f,.82f,.63f);
  label(e,"BUILDING",cx-56,e->h*.47f,3,.96f,.87f,.70f);
@@ -791,6 +811,12 @@ static void frame(E*e){
  vkCmdBeginRenderPass(cb,&rp,VK_SUBPASS_CONTENTS_INLINE);
  VkViewport viewport={0.0f,0.0f,(float)e->w,(float)e->h,0.0f,1.0f};VkRect2D scissor={{0,0},{e->w,e->h}};
  vkCmdSetViewport(cb,0,1,&viewport);vkCmdSetScissor(cb,0,1,&scissor);
+ if(e->scene==2&&e->sky_nv>0u){
+  vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,e->pipe);
+  VkDeviceSize sky_offset=0;
+  vkCmdBindVertexBuffers(cb,0,1,&e->vb,&sky_offset);
+  vkCmdDraw(cb,e->sky_nv,1,0,0);
+ }
  if(e->scene==2&&e->sea_renderer_ready&&e->sea_scene){
   const TgGpuMeshVk*mesh=tg_sea_test_scene_gpu_mesh(e->sea_scene);
   if(mesh){
@@ -821,7 +847,13 @@ static void frame(E*e){
   }else ERR("SEA_STAGE draw skipped: scene mesh is null");
  }
  vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,e->pipe);VkDeviceSize offset=0;
- vkCmdBindVertexBuffers(cb,0,1,&e->vb,&offset);vkCmdDraw(cb,e->nv,1,0,0);
+ vkCmdBindVertexBuffers(cb,0,1,&e->vb,&offset);
+ if(e->scene==2&&e->sky_nv>0u){
+  uint32_t overlay_count=e->nv-e->sky_nv;
+  if(overlay_count)vkCmdDraw(cb,overlay_count,1,e->sky_nv,0);
+ }else{
+  vkCmdDraw(cb,e->nv,1,0,0);
+ }
  vkCmdEndRenderPass(cb);vr=vkEndCommandBuffer(cb);
  if(vr!=VK_SUCCESS){ERR("FRAME end-command-buffer failed: VkResult=%d",(int)vr);return;}
  vr=vkResetFences(e->dev,1,&e->fence);
