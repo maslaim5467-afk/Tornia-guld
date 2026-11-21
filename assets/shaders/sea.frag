@@ -1,25 +1,94 @@
 #version 450
 
+layout(push_constant) uniform SeaLighting {
+    mat4 viewProjection;
+    vec4 wave;
+    vec4 cameraPosition;
+    vec4 sunDirection;
+} lighting;
+
 layout(location = 0) in vec3 inNormal;
 layout(location = 1) in float inHeight;
 layout(location = 2) in vec3 inWorldPosition;
 layout(location = 0) out vec4 outColor;
 
+const float SEA_PI = 3.14159265359;
+const vec3 WATER_F0 = vec3(0.0204, 0.0204, 0.0204);
+
+float distributionGGX(vec3 n, vec3 h, float roughness) {
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float nh = max(dot(n, h), 0.0);
+    float nh2 = nh * nh;
+    float denominator = nh2 * (a2 - 1.0) + 1.0;
+    return a2 / max(SEA_PI * denominator * denominator, 0.0001);
+}
+
+float geometrySchlickGGX(float nv, float roughness) {
+    float r = roughness + 1.0;
+    float k = (r * r) / 8.0;
+    return nv / max(nv * (1.0 - k) + k, 0.0001);
+}
+
+float geometrySmith(vec3 n, vec3 v, vec3 l, float roughness) {
+    float nv = max(dot(n, v), 0.0);
+    float nl = max(dot(n, l), 0.0);
+    return geometrySchlickGGX(nv, roughness)
+         * geometrySchlickGGX(nl, roughness);
+}
+
+vec3 fresnelSchlick(float cosine, vec3 f0) {
+    float f = pow(clamp(1.0 - cosine, 0.0, 1.0), 5.0);
+    return f0 + (1.0 - f0) * f;
+}
+
+/* Procedural sky radiance used as a lightweight environment reflection. */
+vec3 sampleSky(vec3 direction, vec3 sunDirection) {
+    float horizon = smoothstep(-0.18, 0.42, direction.y);
+    vec3 horizonColor = vec3(0.34, 0.52, 0.66);
+    vec3 zenithColor = vec3(0.035, 0.16, 0.34);
+    vec3 sky = mix(horizonColor, zenithColor, horizon);
+
+    float sunDisc = pow(max(dot(direction, sunDirection), 0.0), 420.0);
+    float sunGlow = pow(max(dot(direction, sunDirection), 0.0), 24.0);
+    sky += vec3(1.0, 0.78, 0.48) * sunDisc * 8.0;
+    sky += vec3(1.0, 0.62, 0.34) * sunGlow * 0.22;
+    return sky;
+}
+
 void main() {
-    vec3 normal = normalize(inNormal);
-    vec3 lightDirection = normalize(vec3(-0.42, 0.82, 0.38));
-    vec3 viewDirection = normalize(vec3(0.0, 1.0, 0.0) - inWorldPosition);
-    vec3 halfDirection = normalize(lightDirection + viewDirection);
+    vec3 n = normalize(inNormal);
+    vec3 cameraPosition = lighting.cameraPosition.xyz;
+    vec3 v = normalize(cameraPosition - inWorldPosition);
+    vec3 l = normalize(lighting.sunDirection.xyz);
+    vec3 h = normalize(v + l);
 
-    float diffuse = max(dot(normal, lightDirection), 0.0);
-    float fresnel = pow(1.0 - max(dot(normal, viewDirection), 0.0), 3.0);
-    float specular = pow(max(dot(normal, halfDirection), 0.0), 52.0);
-    float crest = clamp(inHeight * 0.9 + 0.5, 0.0, 1.0);
+    float nv = max(dot(n, v), 0.0);
+    float nl = max(dot(n, l), 0.0);
+    float roughness = clamp(0.075 + abs(inHeight) * 0.018, 0.055, 0.22);
 
-    vec3 deepWater = vec3(0.008, 0.105, 0.22);
-    vec3 brightWater = vec3(0.025, 0.34, 0.49);
-    vec3 water = mix(deepWater, brightWater, crest * 0.58 + fresnel * 0.18);
-    water *= 0.58 + diffuse * 0.48;
-    water += vec3(0.42, 0.68, 0.78) * specular * 0.72;
-    outColor = vec4(water, 1.0);
+    vec3 f = fresnelSchlick(nv, WATER_F0);
+    float d = distributionGGX(n, h, roughness);
+    float g = geometrySmith(n, v, l, roughness);
+    vec3 specular = (d * g * fresnelSchlick(max(dot(h, v), 0.0), WATER_F0))
+                  / max(4.0 * nv * max(nl, 0.001), 0.001);
+
+    vec3 reflectedDirection = reflect(-v, n);
+    vec3 environment = sampleSky(reflectedDirection, l);
+
+    vec3 deepWater = vec3(0.004, 0.055, 0.12);
+    vec3 shallowWater = vec3(0.018, 0.22, 0.32);
+    float crest = clamp(inHeight * 0.55 + 0.5, 0.0, 1.0);
+    vec3 waterDiffuse = mix(deepWater, shallowWater, crest * 0.42);
+    waterDiffuse *= 0.30 + 0.70 * nl;
+
+    vec3 directSun = vec3(1.0, 0.82, 0.62) * specular * nl * 5.0;
+    vec3 reflectedSky = environment * f;
+    vec3 color = waterDiffuse * (1.0 - f) + reflectedSky + directSun;
+
+    /* Keep a restrained glint where the sun aligns with the reflected view. */
+    float sunGlint = pow(max(dot(reflect(-l, n), v), 0.0), 180.0);
+    color += vec3(1.0, 0.84, 0.64) * sunGlint * 0.32;
+
+    outColor = vec4(color, 1.0);
 }
