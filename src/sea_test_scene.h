@@ -9,8 +9,8 @@ extern "C" {
 
 #define TG_SEA_TEST_SCENE_WIDTH 40.0f
 #define TG_SEA_TEST_SCENE_DEPTH 20.0f
-#define TG_SEA_TEST_SCENE_COLUMNS 96u
-#define TG_SEA_TEST_SCENE_ROWS 48u
+#define TG_SEA_TEST_SCENE_COLUMNS 128u
+#define TG_SEA_TEST_SCENE_ROWS 64u
 
 typedef struct TgSeaTestScene TgSeaTestScene;
 
