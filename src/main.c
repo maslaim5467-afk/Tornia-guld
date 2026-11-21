@@ -313,11 +313,20 @@ static void menu(E*e){
 static void push_preview_sun(E*e){
  if(!e->sea_renderer_ready||e->w==0||e->h==0)return;
 
- /* Fixed world-space sunrise position, shared with the water-light vector. */
- const float world_x=0.0f,world_y=5.5f,world_z=-320.0f;
+ /*
+  * Treat the sun as a distant celestial direction, not a nearby world point.
+  * Camera translation must not create parallax that makes the sun sink toward
+  * the ocean when the observer rises. Keep this vector identical to the
+  * directional light sent to the water shader.
+  */
+ const float sun_x=0.0f,sun_y=0.0172f,sun_z=-0.99985f;
+ const float sun_distance=1000.0f;
+ const float world_x=e->sea_camera.position.x+sun_x*sun_distance;
+ const float world_y=e->sea_camera.position.y+sun_y*sun_distance;
+ const float world_z=e->sea_camera.position.z+sun_z*sun_distance;
  const float*m=e->sea_camera.view_projection.m;
 
- /* Column-major view-projection transform: project the sun's world position. */
+ /* Project a camera-relative point on the fixed world-space sun ray. */
  float clip_x=m[0]*world_x+m[4]*world_y+m[8]*world_z+m[12];
  float clip_y=m[1]*world_x+m[5]*world_y+m[9]*world_z+m[13];
  float clip_z=m[2]*world_x+m[6]*world_y+m[10]*world_z+m[14];
