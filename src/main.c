@@ -269,10 +269,40 @@ static void menu(E*e){
  label(e,"EXIT",cx-20,ey+bh/2-7,2,.85f,.86f,.87f);
  if(e->notice){float my=e->h*.84f,mw=e->w*.55f;push(e,cx-mw/2,my,mw,e->h*.11f,.60f,.43f,.22f);push(e,cx-mw/2+3,my+3,mw-6,e->h*.11f-6,.08f,.10f,.12f);label(e,"COMING SOON",cx-49,my+e->h*.035f,1.5f,.98f,.88f,.72f);}
 }
+static void push_preview_sun(E*e){
+ if(!e->sea_renderer_ready||e->w==0||e->h==0)return;
+
+ /* Keep this direction identical to the current water-light direction. */
+ const float sun_x=-0.35f,sun_y=0.82f,sun_z=0.44f;
+ const float sun_distance=30.0f;
+ float world_x=sun_x*sun_distance;
+ float world_y=sun_y*sun_distance;
+ float world_z=sun_z*sun_distance;
+ const float*m=e->sea_camera.view_projection.m;
+
+ /* Column-major view-projection transform: project the sun's world position. */
+ float clip_x=m[0]*world_x+m[4]*world_y+m[8]*world_z+m[12];
+ float clip_y=m[1]*world_x+m[5]*world_y+m[9]*world_z+m[13];
+ float clip_z=m[2]*world_x+m[6]*world_y+m[10]*world_z+m[14];
+ float clip_w=m[3]*world_x+m[7]*world_y+m[11]*world_z+m[15];
+ if(clip_w<=0.001f||clip_z<0.0f||clip_z>clip_w)return;
+
+ float ndc_x=clip_x/clip_w,ndc_y=clip_y/clip_w;
+ if(ndc_x < -1.25f||ndc_x > 1.25f||ndc_y < -1.25f||ndc_y > 1.25f)return;
+ float sx=(ndc_x*0.5f+0.5f)*(float)e->w;
+ float sy=(ndc_y*0.5f+0.5f)*(float)e->h;
+
+ /* A restrained screen-space disc: visual marker only, not a light source. */
+ float radius=(float)(e->h<e->w?e->h:e->w)*0.018f;
+ push_disk(e,sx,sy,radius*3.2f,1.0f,.48f,.20f,.045f);
+ push_disk(e,sx,sy,radius*2.0f,1.0f,.62f,.30f,.10f);
+ push_disk(e,sx,sy,radius,1.0f,.86f,.62f,.96f);
+}
 static void draw_building(E*e){
  e->nv=0;
  float cx=(float)e->w*.5f;
  /* Keep the 3D sea visible behind the lightweight BUILDING overlay. */
+ push_preview_sun(e);
  label(e,"TORNIA_GULD",cx-84,e->h*.27f,4,.91f,.82f,.63f);
  label(e,"BUILDING",cx-56,e->h*.47f,3,.96f,.87f,.70f);
  label(e,"IN PROGRESS",cx-66,e->h*.56f,2,.72f,.78f,.82f);
