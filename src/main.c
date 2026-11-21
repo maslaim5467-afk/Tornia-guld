@@ -264,7 +264,7 @@ static void menu(E*e){
 static void draw_building(E*e){
  e->nv=0;
  float cx=(float)e->w*.5f;
- push(e,0,0,e->w,e->h,.035f,.052f,.07f);
+ /* Keep the 3D sea visible behind the lightweight BUILDING overlay. */
  label(e,"TORNIA_GULD",cx-84,e->h*.27f,4,.91f,.82f,.63f);
  label(e,"BUILDING",cx-56,e->h*.47f,3,.96f,.87f,.70f);
  label(e,"IN PROGRESS",cx-66,e->h*.56f,2,.72f,.78f,.82f);
