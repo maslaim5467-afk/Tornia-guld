@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-#define TG_SEA_TEST_SCENE_WIDTH 20.0f
+#define TG_SEA_TEST_SCENE_WIDTH 40.0f
 #define TG_SEA_TEST_SCENE_DEPTH 20.0f
 
 typedef struct TgSeaTestScene TgSeaTestScene;
