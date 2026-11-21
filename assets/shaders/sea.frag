@@ -48,20 +48,57 @@ vec3 fresnelSchlick(float cosine, vec3 f0) {
     return f0 + (1.0 - f0) * f;
 }
 
+/*
+ * Compact single-scattering dawn atmosphere for the procedural environment.
+ * The optical-depth approximation is intentionally bounded for mobile GPUs;
+ * it captures the long-path red shift near the horizon without a full
+ * volumetric atmosphere or aerial-perspective pass.
+ */
+vec3 atmosphericTransmittance(float sunElevation) {
+    float elevation = max(sunElevation, 0.0);
+    float airMass = 1.0 / max(elevation + 0.055, 0.075);
+    airMass = min(airMass, 8.0);
+
+    // Relative RGB extinction: blue is scattered out of the direct solar beam
+    // more strongly than red along the long low-angle path at sunrise.
+    vec3 extinction = vec3(0.035, 0.105, 0.24);
+    return exp(-extinction * airMass);
+}
+
 /* Procedural sky radiance used as a lightweight environment reflection. */
 vec3 sampleSky(vec3 direction, vec3 sunDirection) {
-    float horizon = smoothstep(-0.18, 0.42, direction.y);
-    vec3 horizonColor = vec3(0.78, 0.30, 0.12);
-    vec3 zenithColor = vec3(0.018, 0.055, 0.13);
-    vec3 sky = mix(horizonColor, zenithColor, horizon);
+    vec3 viewDir = normalize(direction);
+    vec3 sunDir = normalize(sunDirection);
+    float elevation = max(sunDir.y, 0.0);
+    float horizon = smoothstep(-0.20, 0.48, viewDir.y);
 
-    float warmBand = exp(-abs(direction.y) * 8.0);
-    sky = mix(sky, vec3(0.95, 0.43, 0.20), warmBand * 0.34);
-    float sunAlignment = max(dot(direction, sunDirection), 0.0);
-    float sunDisc = pow(sunAlignment, 900.0);
-    float sunGlow = pow(sunAlignment, 32.0);
-    sky += vec3(1.0, 0.72, 0.40) * sunDisc * 10.0;
-    sky += vec3(1.0, 0.34, 0.12) * sunGlow * 0.38;
+    vec3 zenithColor = vec3(0.012, 0.035, 0.095);
+    vec3 horizonBase = vec3(0.16, 0.075, 0.075);
+    vec3 sky = mix(horizonBase, zenithColor, horizon);
+
+    // A broad warm horizon belt represents the strongly scattered dawn light.
+    float horizonGlow = exp(-abs(viewDir.y) * 10.0);
+    float sunSide = 0.55 + 0.45 * max(dot(viewDir, sunDir), 0.0);
+    sky += vec3(0.42, 0.105, 0.028) * horizonGlow * sunSide;
+
+    // Rayleigh-like angular response plus a broader forward Mie lobe.
+    float cosTheta = clamp(dot(viewDir, sunDir), -1.0, 1.0);
+    float rayleighPhase = 0.0597 * (1.0 + cosTheta * cosTheta);
+    const float mieG = 0.76;
+    float mieDenom = max(1.0 + mieG * mieG - 2.0 * mieG * cosTheta, 0.025);
+    float miePhase = 0.018 * (1.0 - mieG * mieG)
+                   / (mieDenom * sqrt(mieDenom));
+    vec3 transmittance = atmosphericTransmittance(elevation);
+    vec3 scatteredSun = vec3(1.0, 0.57, 0.30) * transmittance;
+    sky += scatteredSun * (rayleighPhase * 5.0 + miePhase * 0.8);
+
+    // Finite angular solar disc (~0.27 degrees) with a soft optical aureole.
+    float sunCos = cos(0.00465);
+    float disc = smoothstep(sunCos, cos(0.0036), cosTheta);
+    float aureole = pow(max(cosTheta, 0.0), 180.0);
+    vec3 solarRadiance = vec3(1.0, 0.76, 0.48) * transmittance;
+    sky += solarRadiance * disc * 18.0;
+    sky += solarRadiance * aureole * 0.32;
     return sky;
 }
 
@@ -121,15 +158,23 @@ void main() {
                           vec3(0.075, 0.15, 0.22), skyAmount);
     vec3 ambientFill = absorbedWater * ambientSky * 2.2;
 
-    // Keep direct sunlight directional; ambient fill is independent of sun angle.
-    vec3 diffuseSun = absorbedWater * vec3(1.0, 0.88, 0.72) * nl * 0.22;
-    vec3 directSun = vec3(1.0, 0.82, 0.62) * specular * nl * 5.0;
+    // Low-angle solar beam is spectrally reddened by the longer dawn air path.
+    // Ambient fill remains independent of the direct solar elevation.
+    vec3 solarTransmission = atmosphericTransmittance(l.y);
+    vec3 solarColor = vec3(1.0, 0.91, 0.76) * solarTransmission;
+    float solarElevation = smoothstep(-0.015, 0.12, l.y);
+    vec3 diffuseSun = absorbedWater * solarColor * nl
+                    * (0.30 + 0.70 * solarElevation);
+    vec3 directSun = solarColor * specular * nl * 7.0;
     vec3 reflectedSky = environment * f;
     vec3 color = ambientFill + diffuseSun * (1.0 - f)
                + reflectedSky + directSun;
 
-    float sunGlint = pow(max(dot(reflect(-l, n), v), 0.0), 180.0);
-    color += vec3(1.0, 0.84, 0.64) * sunGlint * 0.32;
+    // Broaden the reflected solar streak slightly on rougher wave facets.
+    float sunAlignment = max(dot(reflect(-l, n), v), 0.0);
+    float glintExponent = mix(240.0, 90.0, roughness);
+    float sunGlint = pow(sunAlignment, glintExponent);
+    color += solarColor * vec3(1.0, 0.84, 0.66) * sunGlint * 0.48;
 
     outColor = vec4(color, 1.0);
 }
