@@ -22,6 +22,11 @@
 #define MAXV 40000
 typedef struct {float x,y,u,v,r,g,b,a,tex;} V;
 typedef struct {
+ TgMat4 view_projection;
+ float time_seconds;
+ float padding[3];
+} TgSeaPushConstants;
+typedef struct {
  struct android_app *app; VkInstance in; VkSurfaceKHR surface; VkPhysicalDevice gpu; VkDevice dev; VkQueue q;
  uint32_t qf,w,h,n; VkSwapchainKHR sw; VkFormat fmt; VkImage *imgs; VkImageView *views; VkFramebuffer *fb;
  VkRenderPass rp; VkPipelineLayout layout; VkPipeline pipe; VkCommandPool pool; VkCommandBuffer *cmd;
@@ -29,6 +34,7 @@ typedef struct {
  TgSeaTestScene *sea_scene; TgCamera3D sea_camera;
  VkPipeline sea_pipe; VkPipelineLayout sea_layout;
  int sea_renderer_attempted,sea_renderer_ready,sea_draw_logged;
+  float sea_time_seconds;
  VkBuffer vb; VkDeviceMemory vm; VkSemaphore semA,semB; VkFence fence;
  VkImage atlas; VkDeviceMemory atlas_mem; VkImageView atlas_view; VkSampler atlas_sampler;
  VkImage sprite_image; VkDeviceMemory sprite_memory; VkImageView sprite_view; VkSampler sprite_sampler;
@@ -577,7 +583,7 @@ failed:
 
 static int create_sea_pipeline(E*e){
  VkShaderModule vs=VK_NULL_HANDLE,fs=VK_NULL_HANDLE;
- VkPushConstantRange range={.stageFlags=VK_SHADER_STAGE_VERTEX_BIT,.offset=0,.size=(uint32_t)sizeof(TgMat4)};
+ VkPushConstantRange range={.stageFlags=VK_SHADER_STAGE_VERTEX_BIT,.offset=0,.size=(uint32_t)sizeof(TgSeaPushConstants)};
  VkPipelineLayoutCreateInfo layout_ci={.sType=VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,.pushConstantRangeCount=1,.pPushConstantRanges=&range};
  VkPipelineShaderStageCreateInfo stages[2];
  VkVertexInputBindingDescription binding={.binding=0,.stride=(uint32_t)sizeof(TgMeshVertex3D),.inputRate=VK_VERTEX_INPUT_RATE_VERTEX};
@@ -605,7 +611,7 @@ static int create_sea_pipeline(E*e){
  LOG("SEA_STAGE pipeline: creating graphics pipeline");
  vr=vkCreateGraphicsPipelines(e->dev,VK_NULL_HANDLE,1,&pi,NULL,&e->sea_pipe);
  if(vr!=VK_SUCCESS){ERR("SEA_STAGE graphics-pipeline failed: VkResult=%d",(int)vr);goto done;}
- LOG("SEA_STAGE pipeline: ready (color-only pass; depth testing deferred)");
+ LOG("SEA_STAGE pipeline: ready (animated vertex waves; analytic normals; depth testing deferred)");
 done:
  if(vs)vkDestroyShaderModule(e->dev,vs,NULL);if(fs)vkDestroyShaderModule(e->dev,fs,NULL);
  if(vr!=VK_SUCCESS){
@@ -624,7 +630,7 @@ static int initialize_sea_renderer(E*e){
  LOG("SEA_STAGE depth-probe begin; extent=%ux%u",e->w,e->h);
  if(create_depth_target_probe(e)==0)LOG("SEA_STAGE depth-probe ready (diagnostic-only for this flat plane)");
  else ERR("SEA_STAGE depth-probe unavailable; continuing without depth");
- LOG("SEA_STAGE mesh-upload begin; bounded landscape plane=40x20");
+ LOG("SEA_STAGE mesh-upload begin; subdivided sea grid=96x48 cells");
  if(tg_sea_test_scene_create(e->gpu,e->dev,e->q,e->qf,&e->sea_scene,&upload_result)!=0){
   ERR("SEA_STAGE mesh-upload failed: VkResult=%d",(int)upload_result);goto failed;
  }
@@ -642,7 +648,7 @@ static int initialize_sea_renderer(E*e){
  }
  if(create_sea_pipeline(e)!=0)goto failed;
  e->sea_renderer_ready=1;
- LOG("SEA_STAGE READY: flat blue water plane is enabled for BUILDING screen");
+ LOG("SEA_STAGE READY: animated procedural water surface is enabled for BUILDING screen");
  return 0;
 failed:
  if(e->sea_pipe){vkDestroyPipeline(e->dev,e->sea_pipe,NULL);e->sea_pipe=VK_NULL_HANDLE;}
@@ -684,6 +690,8 @@ static void frame(E*e){
   if(e->last_frame_ns){uint64_t delta=(ns-e->last_frame_ns)/1000000ull;if(delta>100u)delta=100u;delta_ms=(uint32_t)delta;}
   e->last_frame_ns=ns;
  }
+ if(e->scene==2&&e->sea_renderer_ready)
+  e->sea_time_seconds+=(float)delta_ms/1000.0f;
  if(e->scene==1){
   if(!e->world_resources_ready&&initialize_2d_world(e)!=0){e->scene=2;ERR("2D world initialization failed; returning to construction screen");}
   if(e->scene==1)player_update(&e->player,delta_ms,(float)WORLD_WIDTH*WORLD_TILE_SIZE,(float)WORLD_HEIGHT*WORLD_TILE_SIZE);
@@ -723,7 +731,11 @@ static void frame(E*e){
    VkBuffer buffer=tg_gpu_mesh_vk_buffer(mesh);VkDeviceSize vertex_offset=tg_gpu_mesh_vk_vertex_offset(mesh);
    if(buffer!=VK_NULL_HANDLE){
     vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,e->sea_pipe);
-    vkCmdPushConstants(cb,e->sea_layout,VK_SHADER_STAGE_VERTEX_BIT,0,(uint32_t)sizeof(TgMat4),&e->sea_camera.view_projection);
+    TgSeaPushConstants sea_push;
+    sea_push.view_projection=e->sea_camera.view_projection;
+    sea_push.time_seconds=e->sea_time_seconds;
+    sea_push.padding[0]=0.0f;sea_push.padding[1]=0.0f;sea_push.padding[2]=0.0f;
+    vkCmdPushConstants(cb,e->sea_layout,VK_SHADER_STAGE_VERTEX_BIT,0,(uint32_t)sizeof(sea_push),&sea_push);
     vkCmdBindVertexBuffers(cb,0,1,&buffer,&vertex_offset);
     vkCmdBindIndexBuffer(cb,buffer,tg_gpu_mesh_vk_index_offset(mesh),VK_INDEX_TYPE_UINT32);
     vkCmdDrawIndexed(cb,tg_gpu_mesh_vk_index_count(mesh),1,0,0,0);
