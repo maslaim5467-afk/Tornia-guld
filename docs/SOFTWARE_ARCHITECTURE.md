@@ -4,13 +4,13 @@
 > **Project:** Tornia-guld  
 > **Companion documents:** [Technical Design](TECHNICAL_DESIGN.md), [Project Overview](PROJECT_OVERVIEW.md), [GDD](GDD.md).  
 >
-> **Important distinction:** Sections describing the current prototype are observations from the inspected `feature/terrain-world-foundation` branch. Sections describing future module boundaries are proposed architecture, not a claim that those modules already exist.
+> **Important distinction:** Current implementation observations refer to the integrated development snapshot recorded in `ENGINE_IMPLEMENTATION_STATUS.md`. Proposed module boundaries remain target architecture unless explicitly marked implemented.
 
 ## 1. Purpose
 
 This document records the software structure of the Tornia-guld custom engine, distinguishes the current prototype from the intended separation of responsibilities, and identifies architectural decisions that still require review.
 
-The architecture must support the approved 2D Android game direction while remaining small enough to evolve incrementally. It must not introduce a feature, gameplay rule, or external dependency that the project creator has not approved.
+The engine must support both 2D and 3D rendering as coordinated capabilities while the initial game remains a 2D Android Pixel Art project. The architecture must remain small enough to evolve incrementally. It must not introduce a feature, gameplay rule, or external dependency that the project creator has not approved.
 
 ## 2. Architectural constraints
 
@@ -19,14 +19,15 @@ The architecture must support the approved 2D Android game direction while remai
 - Implementation language: C.
 - Graphics API: Vulkan.
 - Engine strategy: custom engine.
-- Visual/game format: 2D Pixel Art, Top-Down camera direction.
+- Initial game visual format: 2D Pixel Art, Top-Down camera direction.
+- Engine graphics capability: 2D and 3D rendering foundations using the shared Vulkan application/backend path.
 - Initial input: touchscreen.
 - The GDD is authoritative for gameplay behavior; technical architecture must implement it rather than redefine it.
 - Unknown decisions remain TBD until approved.
 
 ## 3. Current prototype architecture (observed)
 
-In the inspected development branch, the runtime is centered on `src/main.c`. It currently contains or coordinates:
+In the current integration snapshot, the runtime remains centered on `src/main.c`, which contains Android lifecycle integration, shared Vulkan setup/submission, and much of the frame orchestration. It currently contains or coordinates:
 - Android application callbacks and lifecycle integration.
 - Vulkan instance/device/surface/swapchain and rendering state.
 - Vertex submission and drawing helpers.
@@ -37,12 +38,16 @@ In the inspected development branch, the runtime is centered on `src/main.c`. It
 - Touch handling and Virtual Joystick presentation/update.
 - Main-menu/prototype scene behavior.
 
-The same branch contains separate `player`, `world`, and `animation` modules:
+The source tree also contains the following separate 2D and 3D modules:
 - `src/player.h/.c`: player movement state and update logic.
 - `src/world.h/.c`: prototype tile-grid data, seeded decoration, and camera operations.
 - `src/animation.h/.c`: animation metadata parsing and playback.
+- `src/math3d.h/.c` and `src/camera3d.h/.c`: 3D math and camera transforms.
+- `src/mesh3d.h/.c`, `src/gpu_mesh_layout.h/.c`, and `src/gpu_mesh_vk.h/.c`: mesh data, GPU layout, and Vulkan mesh resource handling.
+- `src/sea_test_scene.h/.c` and `src/sea_camera.h/.c`: experimental sea scene and free-fly camera.
+- `src/weather.h/.c`: weather state used by the sky/ocean preview.
 
-This is a working prototype arrangement, not yet a fully separated engine architecture. In particular, the inspected code does not establish a complete entity system, NPC framework, collision subsystem, scene manager, save system, audio engine, or general asset pipeline.
+The 2D and 3D foundations are implemented as prototype subsystems, but this is not yet a fully separated engine architecture: dedicated 2D/3D renderer orchestration modules and a general renderer coordinator are not present. In particular, the inspected code does not establish a complete entity system, NPC framework, collision subsystem, scene manager, save system, audio engine, or general asset pipeline.
 
 ## 4. Proposed logical layers
 
