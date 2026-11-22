@@ -1,5 +1,8 @@
 # 3D Renderer Architecture
 
+> **Implementation-status note (2026-11-22):** This document includes early foundation/design values that may describe an earlier prototype stage. For the current implemented state, test evidence, and known limitations, see [ENGINE_IMPLEMENTATION_STATUS.md](ENGINE_IMPLEMENTATION_STATUS.md). Where a historical value in this document conflicts with the current status report, the status report and current source code take precedence.
+
+
 ## Status
 
 - **Architecture proposal:** initial baseline for the progressive bounded-sea experiment.
