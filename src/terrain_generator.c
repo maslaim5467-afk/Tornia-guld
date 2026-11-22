@@ -50,7 +50,7 @@ int tg_terrain_sample_normal(float x,float z,uint32_t seed,float scale,float spa
  if(!out||!isfinite(x)||!isfinite(z)||!isfinite(scale)||scale<0.0f||!positive(spacing))return -1;
  dx=(tg_terrain_sample_height(x+spacing,z,seed,scale)-tg_terrain_sample_height(x-spacing,z,seed,scale))/(2.0f*spacing);
  dz=(tg_terrain_sample_height(x,z+spacing,seed,scale)-tg_terrain_sample_height(x,z-spacing,seed,scale))/(2.0f*spacing);
- n=tg_vec3_normalize(tg_vec3(-dx,1.0f,-dz));
+ if(tg_vec3_normalize(tg_vec3(-dx,1.0f,-dz),&n)!=0)return -1;
  if(!isfinite(n.x)||!isfinite(n.y)||!isfinite(n.z))return -1;
  *out=n; return 0;
 }
