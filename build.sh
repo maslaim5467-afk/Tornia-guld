@@ -37,6 +37,8 @@ glslc assets/shaders/sun.vert -o assets/shaders/sun.vert.spv
 glslc assets/shaders/sun.frag -o assets/shaders/sun.frag.spv
 glslc assets/shaders/sky.vert -o assets/shaders/sky.vert.spv
 glslc assets/shaders/sky.frag -o assets/shaders/sky.frag.spv
+glslc assets/shaders/terrain.vert -o assets/shaders/terrain.vert.spv
+glslc assets/shaders/terrain.frag -o assets/shaders/terrain.frag.spv
 
 mkdir -p build/lib/arm64-v8a
 rm -f build/*.apk
