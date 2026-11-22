@@ -1,6 +1,7 @@
 #include "sea_camera.h"
 
 #include <math.h>
+#include <stddef.h>
 
 TgVec3 tg_sea_camera_forward(float yaw_radians, float pitch_radians) {
     float cos_pitch = cosf(pitch_radians);
