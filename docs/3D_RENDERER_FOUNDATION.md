@@ -1,5 +1,8 @@
 # 3D renderer foundation
 
+> **Implementation-status note (2026-11-22):** This document includes early foundation/design values that may describe an earlier prototype stage. For the current implemented state, test evidence, and known limitations, see [ENGINE_IMPLEMENTATION_STATUS.md](ENGINE_IMPLEMENTATION_STATUS.md). Where a historical value in this document conflicts with the current status report, the status report and current source code take precedence.
+
+
 ## Purpose
 
 This change establishes the portable math, camera, CPU mesh, GPU upload,
