@@ -146,7 +146,8 @@ Copy this section for each new experiment.
 - **Subsystem:** BUILDING sky, volumetric clouds, shared wind, ocean waves and precipitation preview.
 - **Implemented:** Camera-oriented Vulkan sky pass; procedural volumetric cloud raymarch (12 samples); fixed 09:00 preview sun shared by sky/sun/ocean; weather state for time, wind speed/direction, cloud coverage/altitude and rain rate; wind drives cloud drift and existing JONSWAP/SMB ocean-wave parameters; dry default; basic precipitation streak preview; 2D sky fallback if sky pipeline creation fails; weather-state unit test and CI workflow.
 - **Not implemented:** Date/latitude-aware solar movement, dynamic meteorological wind fields, cloud formation physics, particle rain, wet-surface accumulation and physically based rain/ocean coupling.
-- **Verification:** Android runtime and physical-device visual tests have not yet been performed; CI is pending.
-- **Status:** Not run
+- **Automated CI:** Passed on commit `a7729c489be077a3bbb4ce631bf301ed91a7165a`: Android arm64-v8a APK build and upload (run `45008961548`), weather-state tests (run `45008961623`), plus the existing world, 3D math/camera/mesh, player, and animation suites.
+- **Device verification:** Android runtime and physical-device visual tests have not yet been performed.
+- **Status:** Passed with limitations (automated build and unit tests only)
 - **Limitations:** Clouds are procedural volumetric rendering, not fluid simulation. The 09:00 sun is a fixed preview because date/location/timezone are not modeled. Rain is a shader placeholder, not particle precipitation.
 - **Follow-up:** Compile shaders/build APK; inspect on Galaxy A14; profile GPU cost; implement particle rain and astronomical sun movement later.
