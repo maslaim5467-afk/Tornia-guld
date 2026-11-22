@@ -15,9 +15,7 @@ layout(location = 2) out vec3 outWorldPosition;
 
 const float SEA_G = 9.81;
 const float SEA_GAMMA = 3.30;
-const float SEA_WIND_SPEED = 12.0;       // 10 m reference wind speed, m/s
-const float SEA_FETCH = 50000.0;         // upwind fetch, metres
-const float SEA_WIND_DIRECTION = 0.35;   // radians, direction waves travel toward
+const float SEA_FETCH = 50000.0;         // upwind fetch; wind comes from shared weather state
 const int SEA_FREQUENCY_BINS = 8;
 const int SEA_DIRECTION_BINS = 4;
 const float SEA_PI = 3.14159265359;
@@ -32,16 +30,18 @@ const float SEA_PI = 3.14159265359;
  * Resulting Hs/Tp parameterize the JONSWAP spectrum below.
  */
 float seaSignificantWaveHeight() {
-    float u2 = SEA_WIND_SPEED * SEA_WIND_SPEED;
+    float windSpeed=max(camera.wave.y,0.1);
+    float u2=windSpeed*windSpeed;
     float dimensionlessFetch = SEA_G * SEA_FETCH / max(u2, 0.0001);
     return 0.283 * u2 / SEA_G
          * tanh(0.0125 * pow(dimensionlessFetch, 0.42));
 }
 
 float seaPeakPeriod() {
-    float u2 = SEA_WIND_SPEED * SEA_WIND_SPEED;
+    float windSpeed=max(camera.wave.y,0.1);
+    float u2=windSpeed*windSpeed;
     float dimensionlessFetch = SEA_G * SEA_FETCH / max(u2, 0.0001);
-    return 7.54 * SEA_WIND_SPEED / SEA_G
+    return 7.54 * max(camera.wave.y,0.1) / SEA_G
          * tanh(0.077 * pow(dimensionlessFetch, 0.25));
 }
 
@@ -128,7 +128,7 @@ void main() {
             float amplitude = sqrt(2.0 * binVariance
                                  * directionalWeight) * energyScale;
 
-            float angle = SEA_WIND_DIRECTION + offset;
+            float angle = camera.wave.z + offset;
             vec2 direction = vec2(cos(angle), sin(angle));
             float phase = waveNumber * dot(direction, inPosition.xz)
                         - angularFrequency * t

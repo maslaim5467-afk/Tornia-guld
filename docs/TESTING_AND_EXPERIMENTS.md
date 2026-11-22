@@ -138,3 +138,15 @@ Copy this section for each new experiment.
   3. Capture a fresh log after testing and verify that no new native crash occurs and that the menu-pipeline success diagnostic is present.
   4. If a crash recurs, compare its signal, fault address, stack, and symbolized program counter with the original `setup+3164` incident before assuming it is the same defect.
   5. Preserve this entry as the incident record and append subsequent verification results rather than rewriting the original observation.
+
+
+### [EXP-004] 3D Sky, Volumetric Clouds and Weather Foundation
+
+- **Date:** 2026-11-22
+- **Subsystem:** BUILDING sky, volumetric clouds, shared wind, ocean waves and precipitation preview.
+- **Implemented:** Camera-oriented Vulkan sky pass; procedural volumetric cloud raymarch (12 samples); fixed 09:00 preview sun shared by sky/sun/ocean; weather state for time, wind speed/direction, cloud coverage/altitude and rain rate; wind drives cloud drift and existing JONSWAP/SMB ocean-wave parameters; dry default; basic precipitation streak preview; 2D sky fallback if sky pipeline creation fails; weather-state unit test and CI workflow.
+- **Not implemented:** Date/latitude-aware solar movement, dynamic meteorological wind fields, cloud formation physics, particle rain, wet-surface accumulation and physically based rain/ocean coupling.
+- **Verification:** Android runtime and physical-device visual tests have not yet been performed; CI is pending.
+- **Status:** Not run
+- **Limitations:** Clouds are procedural volumetric rendering, not fluid simulation. The 09:00 sun is a fixed preview because date/location/timezone are not modeled. Rain is a shader placeholder, not particle precipitation.
+- **Follow-up:** Compile shaders/build APK; inspect on Galaxy A14; profile GPU cost; implement particle rain and astronomical sun movement later.
