@@ -11,6 +11,7 @@
 #include "camera3d.h"
 #include "sea_test_scene.h"
 #include "gpu_mesh_vk.h"
+#include "weather.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -28,16 +29,18 @@ typedef struct {
  float camera_position[4];
  float sun_direction[4];
 } TgSeaPushConstants;
+typedef struct { float camera_forward[4],camera_right[4],camera_up[4],sun_direction[4],weather[4],cloud[4],camera_position[4]; } TgSkyPushConstants;
 typedef struct {
  struct android_app *app; VkInstance in; VkSurfaceKHR surface; VkPhysicalDevice gpu; VkDevice dev; VkQueue q;
  uint32_t qf,w,h,n; VkSwapchainKHR sw; VkFormat fmt; VkImage *imgs; VkImageView *views; VkFramebuffer *fb;
  VkRenderPass rp; VkPipelineLayout layout; VkPipeline pipe; VkCommandPool pool; VkCommandBuffer *cmd;
  VkImage depth_image; VkDeviceMemory depth_memory; VkImageView depth_view; VkFormat depth_format;
  TgSeaTestScene *sea_scene; TgCamera3D sea_camera;
- VkPipeline sea_pipe; VkPipeline sun_pipe; VkPipelineLayout sea_layout;
+ VkPipeline sea_pipe; VkPipeline sun_pipe; VkPipeline sky_pipe; VkPipelineLayout sea_layout; VkPipelineLayout sky_layout;
  uint32_t sun_start,sun_nv;
  int sea_renderer_attempted,sea_renderer_ready,sea_draw_logged;
   float sea_time_seconds,sea_yaw,sea_pitch;
+ TgWeatherState weather;
  int sea_touch_mode,sea_pointer_a,sea_pointer_b;
  float sea_touch_x,sea_touch_y,sea_touch_distance;
  VkBuffer vb; VkDeviceMemory vm; VkSemaphore semA,semB; VkFence fence;
@@ -325,10 +328,15 @@ static void menu(E*e){
  label(e,"EXIT",cx-20,ey+bh/2-7,2,.85f,.86f,.87f);
  if(e->notice){float my=e->h*.84f,mw=e->w*.55f;push(e,cx-mw/2,my,mw,e->h*.11f,.60f,.43f,.22f);push(e,cx-mw/2+3,my+3,mw-6,e->h*.11f-6,.08f,.10f,.12f);label(e,"COMING SOON",cx-49,my+e->h*.035f,1.5f,.98f,.88f,.72f);}
 }
+static void push_sky_quad(E*e){
+ const V a={-1,-1,0,0,1,1,1,1,0},b={1,-1,1,0,1,1,1,1,0},c={1,1,1,1,1,1,1,1,0},d={-1,1,0,1,1,1,1,1,0};
+ if(e->nv+6u>MAXV)return;
+ e->v[e->nv++]=a;e->v[e->nv++]=b;e->v[e->nv++]=c;e->v[e->nv++]=a;e->v[e->nv++]=c;e->v[e->nv++]=d;
+}
 static void push_preview_sun(E*e){
  if(!e->sea_renderer_ready||e->w==0u||e->h==0u)return;
  /* Project a distant point on the fixed celestial ray for screen position and depth. */
- const float sun_x=0.0f,sun_y=-0.0109f,sun_z=-0.99994f;
+ const float sun_x=e->weather.sun_direction[0],sun_y=e->weather.sun_direction[1],sun_z=e->weather.sun_direction[2];
  const float sun_distance=1000.0f;
  const float world_x=e->sea_camera.position.x+sun_x*sun_distance;
  const float world_y=e->sea_camera.position.y+sun_y*sun_distance;
@@ -353,11 +361,9 @@ static void push_preview_sun(E*e){
 static void draw_building(E*e){
  e->nv=0;e->sky_nv=0;
  float cx=(float)e->w*.5f;
- /* Two interpolated bands form a simple dawn sky behind the ocean. */
- push_sky_band(e,0.0f,(float)e->h*0.52f,
-               .012f,.030f,.085f,.72f,.25f,.105f);
- push_sky_band(e,(float)e->h*0.52f,(float)e->h,
-               .72f,.25f,.105f,.16f,.055f,.085f);
+ /* 3D view-dependent sky; keep the old bands as a safe fallback. */
+ if(e->sky_pipe!=VK_NULL_HANDLE)push_sky_quad(e);
+ else{push_sky_band(e,0.0f,(float)e->h*0.52f,.012f,.030f,.085f,.72f,.25f,.105f);push_sky_band(e,(float)e->h*0.52f,(float)e->h,.72f,.25f,.105f,.16f,.055f,.085f);}
  e->sky_nv=e->nv;
  e->sun_start=e->nv;
  push_preview_sun(e);
@@ -708,6 +714,8 @@ done:
  if(vs)vkDestroyShaderModule(e->dev,vs,NULL);if(fs)vkDestroyShaderModule(e->dev,fs,NULL);
  if(vr!=VK_SUCCESS){
   if(e->sun_pipe){vkDestroyPipeline(e->dev,e->sun_pipe,NULL);e->sun_pipe=VK_NULL_HANDLE;}
+   if(e->sky_pipe){vkDestroyPipeline(e->dev,e->sky_pipe,NULL);e->sky_pipe=VK_NULL_HANDLE;}
+   if(e->sky_layout){vkDestroyPipelineLayout(e->dev,e->sky_layout,NULL);e->sky_layout=VK_NULL_HANDLE;}
   if(e->sea_pipe){vkDestroyPipeline(e->dev,e->sea_pipe,NULL);e->sea_pipe=VK_NULL_HANDLE;}
   if(e->sea_layout){vkDestroyPipelineLayout(e->dev,e->sea_layout,NULL);e->sea_layout=VK_NULL_HANDLE;}
   return -1;
@@ -746,6 +754,31 @@ done:
  return 0;
 }
 
+static int create_sky_pipeline(E*e){
+ VkShaderModule vs=VK_NULL_HANDLE,fs=VK_NULL_HANDLE;VkResult vr=VK_ERROR_INITIALIZATION_FAILED;VkPipelineShaderStageCreateInfo st[2];
+ VkVertexInputBindingDescription bd={.binding=0,.stride=(uint32_t)sizeof(V),.inputRate=VK_VERTEX_INPUT_RATE_VERTEX};
+ VkVertexInputAttributeDescription at[4]={{0,0,VK_FORMAT_R32G32_SFLOAT,0},{1,0,VK_FORMAT_R32G32B32A32_SFLOAT,16},{2,0,VK_FORMAT_R32G32_SFLOAT,8},{3,0,VK_FORMAT_R32_SFLOAT,32}};
+ VkPipelineVertexInputStateCreateInfo vx={.sType=VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,.vertexBindingDescriptionCount=1,.pVertexBindingDescriptions=&bd,.vertexAttributeDescriptionCount=4,.pVertexAttributeDescriptions=at};
+ VkPipelineInputAssemblyStateCreateInfo ia={.sType=VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,.topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST};
+ VkPipelineViewportStateCreateInfo vp={.sType=VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,.viewportCount=1,.scissorCount=1};
+ VkPipelineRasterizationStateCreateInfo rs={.sType=VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,.polygonMode=VK_POLYGON_MODE_FILL,.cullMode=VK_CULL_MODE_NONE,.lineWidth=1};
+ VkPipelineMultisampleStateCreateInfo ms={.sType=VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT};
+ VkPipelineDepthStencilStateCreateInfo ds={.sType=VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,.depthTestEnable=VK_FALSE,.depthWriteEnable=VK_FALSE,.depthCompareOp=VK_COMPARE_OP_ALWAYS,.depthBoundsTestEnable=VK_FALSE,.stencilTestEnable=VK_FALSE};
+ VkPipelineColorBlendAttachmentState ba={.blendEnable=VK_FALSE,.colorWriteMask=15};VkPipelineColorBlendStateCreateInfo cb={.sType=VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,.attachmentCount=1,.pAttachments=&ba};
+ VkDynamicState dyn[]={VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR};VkPipelineDynamicStateCreateInfo dy={.sType=VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,.dynamicStateCount=2,.pDynamicStates=dyn};
+ VkPushConstantRange range={.stageFlags=VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT,.offset=0,.size=112};
+ VkPipelineLayoutCreateInfo li={.sType=VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,.pushConstantRangeCount=1,.pPushConstantRanges=&range};
+ VkGraphicsPipelineCreateInfo pi={.sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,.stageCount=2,.pStages=st,.pVertexInputState=&vx,.pInputAssemblyState=&ia,.pViewportState=&vp,.pRasterizationState=&rs,.pMultisampleState=&ms,.pDepthStencilState=&ds,.pColorBlendState=&cb,.pDynamicState=&dy,.renderPass=e->rp,.subpass=0,.basePipelineIndex=-1};
+ vs=shader(e,"shaders/sky.vert.spv");fs=shader(e,"shaders/sky.frag.spv");if(!vs||!fs)goto done;
+ st[0]=(VkPipelineShaderStageCreateInfo){.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_VERTEX_BIT,.module=vs,.pName="main"};
+ st[1]=(VkPipelineShaderStageCreateInfo){.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_FRAGMENT_BIT,.module=fs,.pName="main"};
+ vr=vkCreatePipelineLayout(e->dev,&li,NULL,&e->sky_layout);if(vr!=VK_SUCCESS)goto done;pi.layout=e->sky_layout;
+ vr=vkCreateGraphicsPipelines(e->dev,VK_NULL_HANDLE,1,&pi,NULL,&e->sky_pipe);
+ done:if(vs)vkDestroyShaderModule(e->dev,vs,NULL);if(fs)vkDestroyShaderModule(e->dev,fs,NULL);
+ if(vr!=VK_SUCCESS){ERR("SKY pipeline failed: VkResult=%d",(int)vr);if(e->sky_pipe)vkDestroyPipeline(e->dev,e->sky_pipe,NULL);if(e->sky_layout)vkDestroyPipelineLayout(e->dev,e->sky_layout,NULL);e->sky_pipe=VK_NULL_HANDLE;e->sky_layout=VK_NULL_HANDLE;return -1;}
+ LOG("SKY volumetric cloud pipeline ready");return 0;
+}
+
 static int initialize_sea_renderer(E*e){
  VkResult upload_result=VK_ERROR_INITIALIZATION_FAILED;const TgGpuMeshVk*mesh;
  if(!e||e->dev==VK_NULL_HANDLE||e->q==VK_NULL_HANDLE||e->rp==VK_NULL_HANDLE||e->w==0u||e->h==0u){
@@ -769,6 +802,8 @@ static int initialize_sea_renderer(E*e){
  LOG("SEA_STAGE camera initialization begin");
  e->sea_yaw=0.0f;
  e->sea_pitch=-0.025f;
+ tg_weather_init(&e->weather);
+ LOG("WEATHER 09:00 preset: wind %.1f m/s, clouds %.2f, rain %.1f mm/h",e->weather.wind_speed_mps,e->weather.cloud_coverage,e->weather.precipitation_mm_per_hour);
  {
   TgVec3 camera_position=tg_vec3(0.0f,7.0f,35.0f);
   TgVec3 forward=sea_camera_forward(e);
@@ -783,6 +818,7 @@ static int initialize_sea_renderer(E*e){
   e->sea_touch_mode=0;e->sea_pointer_a=-1;e->sea_pointer_b=-1;
  }
  if(create_sea_pipeline(e)!=0)goto failed;
+ if(create_sky_pipeline(e)!=0)goto failed;
  e->sea_renderer_ready=1;
  LOG("SEA_STAGE READY: animated procedural water surface is enabled for BUILDING screen");
  return 0;
@@ -840,8 +876,7 @@ static void frame(E*e){
   if(e->last_frame_ns){uint64_t delta=(ns-e->last_frame_ns)/1000000ull;if(delta>100u)delta=100u;delta_ms=(uint32_t)delta;}
   e->last_frame_ns=ns;
  }
- if(e->scene==2&&e->sea_renderer_ready)
-  e->sea_time_seconds+=(float)delta_ms/1000.0f;
+ if(e->scene==2&&e->sea_renderer_ready){float dt=(float)delta_ms/1000.0f;e->sea_time_seconds+=dt;tg_weather_update(&e->weather,dt);}
  if(e->scene==1){
   if(!e->world_resources_ready&&initialize_2d_world(e)!=0){e->scene=2;ERR("2D world initialization failed; returning to construction screen");}
   if(e->scene==1)player_update(&e->player,delta_ms,(float)WORLD_WIDTH*WORLD_TILE_SIZE,(float)WORLD_HEIGHT*WORLD_TILE_SIZE);
@@ -878,11 +913,21 @@ static void frame(E*e){
  VkViewport viewport={0.0f,0.0f,(float)e->w,(float)e->h,0.0f,1.0f};VkRect2D scissor={{0,0},{e->w,e->h}};
  vkCmdSetViewport(cb,0,1,&viewport);vkCmdSetScissor(cb,0,1,&scissor);
  if(e->scene==2&&e->sky_nv>0u){
-  vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,e->pipe);
-  VkDeviceSize sky_offset=0;
-  vkCmdBindVertexBuffers(cb,0,1,&e->vb,&sky_offset);
-  vkCmdDraw(cb,e->sky_nv,1,0,0);
- }
+   VkDeviceSize so=0;vkCmdBindVertexBuffers(cb,0,1,&e->vb,&so);
+   if(e->sky_pipe!=VK_NULL_HANDLE){
+    TgSkyPushConstants p;float cp=cosf(e->sea_pitch),sp=sinf(e->sea_pitch);
+    p.camera_forward[0]=sinf(e->sea_yaw)*cp;p.camera_forward[1]=sp;p.camera_forward[2]=-cosf(e->sea_yaw)*cp;p.camera_forward[3]=tanf(e->sea_camera.vertical_fov_radians*.5f);
+    p.camera_right[0]=cosf(e->sea_yaw);p.camera_right[1]=0;p.camera_right[2]=sinf(e->sea_yaw);p.camera_right[3]=(float)e->w/(float)e->h;
+    p.camera_up[0]=-sinf(e->sea_yaw)*sp;p.camera_up[1]=cp;p.camera_up[2]=cosf(e->sea_yaw)*sp;p.camera_up[3]=0;
+    for(int i=0;i<3;i++)p.sun_direction[i]=e->weather.sun_direction[i];p.sun_direction[3]=0;
+    p.weather[0]=e->weather.elapsed_seconds;p.weather[1]=e->weather.wind_speed_mps;p.weather[2]=e->weather.wind_direction_radians;p.weather[3]=e->weather.cloud_coverage;
+    p.cloud[0]=e->weather.cloud_base_height_m;p.cloud[1]=e->weather.cloud_top_height_m;p.cloud[2]=e->weather.precipitation_mm_per_hour;p.cloud[3]=e->weather.time_of_day_hours;
+    p.camera_position[0]=e->sea_camera.position.x;p.camera_position[1]=e->sea_camera.position.y;p.camera_position[2]=e->sea_camera.position.z;p.camera_position[3]=1;
+    vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,e->sky_pipe);
+    vkCmdPushConstants(cb,e->sky_layout,VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT,0,(uint32_t)sizeof(p),&p);
+   }else vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,e->pipe);
+   vkCmdDraw(cb,e->sky_nv,1,0,0);
+  }
  if(e->scene==2&&e->sea_renderer_ready&&e->sea_scene){
   const TgGpuMeshVk*mesh=tg_sea_test_scene_gpu_mesh(e->sea_scene);
   if(mesh){
@@ -891,16 +936,14 @@ static void frame(E*e){
     vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,e->sea_pipe);
     TgSeaPushConstants sea_push;
     sea_push.view_projection=e->sea_camera.view_projection;
-    sea_push.time_seconds=e->sea_time_seconds;
-    sea_push.padding[0]=0.0f;sea_push.padding[1]=0.0f;sea_push.padding[2]=0.0f;
+    sea_push.time_seconds=e->weather.elapsed_seconds;
+     sea_push.padding[0]=e->weather.wind_speed_mps;sea_push.padding[1]=e->weather.wind_direction_radians;sea_push.padding[2]=0.0f;
     sea_push.camera_position[0]=e->sea_camera.position.x;
     sea_push.camera_position[1]=e->sea_camera.position.y;
     sea_push.camera_position[2]=e->sea_camera.position.z;
     sea_push.camera_position[3]=1.0f;
-    /* Sunrise direction: toward the fixed low sun on the forward horizon. */
-    sea_push.sun_direction[0]=0.0f;
-    sea_push.sun_direction[1]=-0.0109f;
-    sea_push.sun_direction[2]=-0.99994f;
+    /* Shared 09:00 solar direction for sky, sun disc and ocean. */
+     sea_push.sun_direction[0]=e->weather.sun_direction[0];sea_push.sun_direction[1]=e->weather.sun_direction[1];sea_push.sun_direction[2]=e->weather.sun_direction[2];
     sea_push.sun_direction[3]=0.0f;
     vkCmdPushConstants(cb,e->sea_layout,
         VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT,
