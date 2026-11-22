@@ -2,7 +2,7 @@ name: 3D math, camera, mesh, and GPU layout tests
 
 on:
   push:
-    branches: ["feature/**"]
+    branches: ["feature/**", "experiment/**"]
   pull_request:
 
 permissions:
@@ -21,6 +21,10 @@ jobs:
         run: |
           cc -std=c11 -Wall -Wextra -Werror -pedantic src/math3d.c src/camera3d.c tests/camera3d_test.c -lm -o camera3d_test
           ./camera3d_test
+      - name: Compile and run sea camera tests
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -pedantic src/math3d.c src/camera3d.c src/sea_camera.c tests/sea_camera_test.c -lm -o sea_camera_test
+          ./sea_camera_test
       - name: Compile and run mesh tests
         run: |
           cc -std=c11 -Wall -Wextra -Werror -pedantic src/math3d.c src/mesh3d.c tests/mesh3d_test.c -lm -o mesh3d_test
