@@ -100,3 +100,41 @@ Copy this section for each new experiment.
 - **Issues and limitations:** Exact water-plane dimensions, visual reference, target device, resolution, performance thresholds, and quantitative acceptance criteria remain to be agreed. Advanced water effects are optional later-stage candidates, not initial requirements.
 - **Changes made:** Experiment scope and staged test plan recorded only. No renderer implementation, visual result, benchmark, or test pass is claimed.
 - **Follow-up:** Inspect the current Vulkan rendering path and define the finite test-plane dimensions and camera. Then implement Stage 1 only, build and run it, and record evidence before advancing to Stage 2.
+
+
+### [EXP-003] Android Startup Crash During Main-Menu Graphics Pipeline Creation
+
+- **Date:** 2026-11-22
+- **Subsystem / feature:** Vulkan main-menu graphics pipeline creation and Android startup stability.
+- **Branch / commit:** `experiment/sea-visible-preview` / fix commit `da7075f9` (short SHA recorded from the implementation session).
+- **Environment:** Physical Samsung Galaxy A14, Android 15, ARM64. The user confirmed that the updated build launched and the previously observed startup crash no longer occurred. Exact build identifier and GPU-driver version were not recorded.
+- **Objective:** Diagnose and correct a repeatable native startup crash observed during Vulkan graphics-pipeline creation.
+- **Original failure evidence:**
+  - Multiple native crashes were recorded on 2026-11-21 (approximately 17:19, 17:31, 17:37:42, and 17:37:53).
+  - The crash signal was `SIGSEGV / SEGV_MAPERR`, with fault address `0x14`.
+  - The repeated stack included `libGLES_mali.so` and `libgame.so (setup+3164)`.
+  - The matching CI APK was symbolized; `setup+3164` mapped to the call to `vkCreateGraphicsPipelines` for the main-menu pipeline.
+  - The menu render pass included a depth/stencil attachment, while the menu pipeline creation structure did not provide a valid `pDepthStencilState` pointer. This violated the applicable Vulkan valid-usage requirement (VUID `VkGraphicsPipelineCreateInfo-renderPass-09028`).
+  - The depth target creation messages appeared before the crash, so depth-target allocation was not identified as the direct failing call in this incident.
+- **Changes made:** Added an explicit `VkPipelineDepthStencilStateCreateInfo` for the menu pipeline, with depth testing and depth writes disabled, and supplied it through `VkGraphicsPipelineCreateInfo.pDepthStencilState`. Diagnostic output was also added around pipeline creation. The fix is recorded in commit `da7075f9`.
+- **Procedure:**
+  1. Analyze the native crash log and identify the repeated crashing program counter.
+  2. Match the `setup+3164` offset against the symbols and disassembly from the CI-built ARM64 APK.
+  3. Inspect the corresponding menu-pipeline creation code and compare its state with Vulkan valid-usage requirements.
+  4. Add an explicit depth/stencil state to the menu pipeline and build a new APK.
+  5. Install and launch the updated APK on the physical Galaxy A14.
+- **Expected result:** The main-menu graphics pipeline is created without the invalid null depth/stencil-state pointer, and the previously reproducible startup crash does not occur.
+- **Observed result:** The user confirmed on 2026-11-22 that the updated build launched on the Galaxy A14 and that the previously observed crash was no longer occurring. This is a successful initial device verification of the reported failure path.
+- **Status:** Passed with limitations
+- **Evidence:** Original crash log `/mnt/data/tornia_crash.log`; symbol/disassembly analysis of CI artifact from workflow run `44907664068`; source correction in commit `da7075f9`; user-confirmed successful launch on the physical device. A new post-fix crash log and extended stability-test results have not yet been recorded.
+- **Issues and limitations:**
+  - A similar crash can still occur if another graphics pipeline or Vulkan resource path contains a separate invalid state, synchronization error, lifetime error, or device/driver-specific issue.
+  - The exact original failure should not be considered permanently impossible: a regression that removes or bypasses the explicit depth/stencil state could reintroduce it.
+  - One successful launch confirms the reported startup path passed once; it does not establish long-duration stability or prove that all Vulkan valid-usage requirements are satisfied.
+  - Repeated cold starts, extended runtime, scene transitions, and fresh log inspection remain outstanding.
+- **Follow-up:**
+  1. Perform multiple cold launches on the Galaxy A14 and record the number of successful launches.
+  2. Keep the application running and exercise the sea preview and other rendering paths; record any new crash or Vulkan error.
+  3. Capture a fresh log after testing and verify that no new native crash occurs and that the menu-pipeline success diagnostic is present.
+  4. If a crash recurs, compare its signal, fault address, stack, and symbolized program counter with the original `setup+3164` incident before assuming it is the same defect.
+  5. Preserve this entry as the incident record and append subsequent verification results rather than rewriting the original observation.
