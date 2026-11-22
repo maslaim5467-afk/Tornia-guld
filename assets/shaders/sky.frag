@@ -6,7 +6,8 @@ float noise3(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);float a=mix(hash
 float cloudNoise(vec3 p){float n=noise3(p)*.56;p*=2.03;n+=noise3(p)*.28;p*=2.01;n+=noise3(p)*.14;return n/.98;}
 float cloudDensity(vec3 p){vec2 w=vec2(cos(sky.weather.z),sin(sky.weather.z));p.xz-=w*(sky.weather.x*sky.weather.y*.018);float n=cloudNoise(p*vec3(.010,.014,.010));float th=mix(.72,.43,clamp(sky.weather.w,0.,1.));return smoothstep(th,th+.15,n)*smoothstep(.02,.18,sky.weather.w);}
 void main(){
- vec2 ndc=vec2(inUv.x*2.-1.,1.-inUv.y*2.);
+ /* Match the Vulkan top-left viewport convention: screen top looks upward. */
+ vec2 ndc=vec2(inUv.x*2.-1.,inUv.y*2.-1.);
  vec3 ray=normalize(sky.cameraForward.xyz+sky.cameraRight.xyz*ndc.x*sky.cameraForward.w*sky.cameraRight.w+sky.cameraUp.xyz*ndc.y*sky.cameraForward.w);
  vec3 sun=normalize(sky.sunDirection.xyz);float h=pow(1.-max(ray.y,0.),3.);
  vec3 color=mix(vec3(.105,.34,.68),vec3(.66,.78,.88),h*.82)+vec3(1.,.70,.38)*pow(max(dot(ray,sun),0.),18.)*.22;
