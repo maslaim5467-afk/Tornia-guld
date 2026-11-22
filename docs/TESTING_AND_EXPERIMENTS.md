@@ -151,3 +151,12 @@ Copy this section for each new experiment.
 - **Status:** Passed with limitations (automated build and unit tests only)
 - **Limitations:** Clouds are procedural volumetric rendering, not fluid simulation. The 09:00 sun is a fixed preview because date/location/timezone are not modeled. Rain is a shader placeholder, not particle precipitation.
 - **Follow-up:** Compile shaders/build APK; inspect on Galaxy A14; profile GPU cost; implement particle rain and astronomical sun movement later.
+
+
+### [EXP-005] Correct Vertical Orientation of Vulkan Ocean and Sky
+
+- **Date:** 2026-11-22
+- **Issue:** On the landscape device capture, the ocean surface appeared above the horizon while the sky occupied the lower region; UI orientation remained correct.
+- **Change:** Apply the Vulkan positive-height viewport Y inversion in the shared perspective projection (`m[5]` negative), and align the full-screen sky ray's vertical NDC mapping with the same top-left screen convention. This is a coordinate correction, not a device rotation or UI transform.
+- **Tests:** Updated the perspective-matrix assertion to require a negative Y scale. Device visual confirmation is still required.
+- **Status:** Pending CI and device verification.
