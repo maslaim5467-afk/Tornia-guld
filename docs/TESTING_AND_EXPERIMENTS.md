@@ -144,13 +144,13 @@ Copy this section for each new experiment.
 
 - **Date:** 2026-11-22
 - **Subsystem:** BUILDING sky, volumetric clouds, shared wind, ocean waves and precipitation preview.
-- **Implemented:** Camera-oriented Vulkan sky pass; procedural volumetric cloud raymarch (12 samples); fixed 09:00 preview sun shared by sky/sun/ocean; weather state for time, wind speed/direction, cloud coverage/altitude and rain rate; wind drives cloud drift and existing JONSWAP/SMB ocean-wave parameters; dry default; basic precipitation streak preview; 2D sky fallback if sky pipeline creation fails; weather-state unit test and CI workflow.
+- **Implemented:** Camera-oriented Vulkan sky pass; procedural volumetric cloud raymarch (currently 8 samples after the mobile shader optimization); fixed 09:00 preview sun shared by sky/sun/ocean; weather state for time, wind speed/direction, cloud coverage/altitude and rain rate; wind drives cloud drift and existing JONSWAP/SMB ocean-wave parameters; dry default; basic precipitation streak preview; 2D sky fallback if sky pipeline creation fails; weather-state unit test and CI workflow.
 - **Not implemented:** Date/latitude-aware solar movement, dynamic meteorological wind fields, cloud formation physics, particle rain, wet-surface accumulation and physically based rain/ocean coupling.
 - **Automated CI:** Passed on commit `a7729c489be077a3bbb4ce631bf301ed91a7165a`: Android arm64-v8a APK build and upload (run `45008961548`), weather-state tests (run `45008961623`), plus the existing world, 3D math/camera/mesh, player, and animation suites.
-- **Device verification:** Android runtime and physical-device visual tests have not yet been performed.
-- **Status:** Passed with limitations (automated build and unit tests only)
-- **Limitations:** Clouds are procedural volumetric rendering, not fluid simulation. The 09:00 sun is a fixed preview because date/location/timezone are not modeled. Rain is a shader placeholder, not particle precipitation.
-- **Follow-up:** Compile shaders/build APK; inspect on Galaxy A14; profile GPU cost; implement particle rain and astronomical sun movement later.
+- **Device verification:** The user inspected the landscape preview on a physical Galaxy A14; the sea/sky vertical orientation issue was subsequently corrected and confirmed separately in EXP-005. A complete visual/performance acceptance pass has not been performed.
+- **Status:** Passed with limitations (automated build and unit tests; limited device visual confirmation)
+- **Limitations:** Clouds are procedural volumetric rendering, not fluid simulation. The 09:00 sun is a fixed preview because date/location/timezone are not modeled. Rain remains a weather/precipitation placeholder, not a complete particle, collision, or wet-surface simulation.
+- **Follow-up:** Profile GPU cost; implement particle rain and astronomical sun movement only when prioritized.
 
 
 ### [EXP-005] Correct Vertical Orientation of Vulkan Ocean and Sky
@@ -158,11 +158,13 @@ Copy this section for each new experiment.
 - **Date:** 2026-11-22
 - **Issue:** On the landscape device capture, the ocean surface appeared above the horizon while the sky occupied the lower region; UI orientation remained correct.
 - **Change:** Apply the Vulkan positive-height viewport Y inversion in the shared perspective projection (`m[5]` negative), and align the full-screen sky ray's vertical NDC mapping with the same top-left screen convention. This is a coordinate correction, not a device rotation or UI transform.
-- **Tests:** Updated the perspective-matrix assertion to require a negative Y scale. Device visual confirmation is still required.
-- **Status:** Pending CI and device verification.
+- **Tests:** Updated the perspective-matrix assertion to require a negative Y scale; the integrated math/camera test suite passed in CI on `b2809cf` (run `45011743614`). The APK build also passed (run `45011743629`).
+- **Observed result:** The user installed the updated APK on the Galaxy A14 and confirmed that the sea/sky orientation was corrected while the UI remained correctly oriented.
+- **Status:** Passed with limitations
+- **Limitations:** This confirms the reported visual orientation issue on the user's device; it is not a full display-orientation or multi-device test.
 
 
-### [EXP-004] First Mobile Performance Optimization — Volumetric Cloud Shader
+### [EXP-006] First Mobile Performance Optimization — Volumetric Cloud Shader
 
 - **Date:** 2026-11-22
 - **Subsystem / feature:** Full-screen sky fragment shader, volumetric cloud density sampling, and camera-motion responsiveness.
@@ -174,12 +176,11 @@ Copy this section for each new experiment.
   2. Reduced cloud density noise from three octaves to two, retaining the broad low-frequency cloud structure while removing one complete 3D-noise evaluation per march sample.
   3. Kept the cloud layer bounds, wind displacement, weather controls, and early transmittance termination intact.
 - **Expected result:** Lower fragment-shader workload during camera movement, with a possible small reduction in fine cloud detail. This is a workload reduction estimate, not a measured FPS or frame-time improvement.
-- **Observed result:** Pending build and physical-device comparison. No claim of measured performance improvement is made.
-- **Status:** Not run
-- **Evidence:** Source change in `assets/shaders/sky.frag`; CI and device test evidence to be added after execution.
+- **Observed result:** The integrated Android APK and automated CI suites passed on commit `b2809cf` (Android build run `45011743629`; 3D math/camera suite run `45011743614`). The user reports that camera-motion stutter remains. No frame-time or GPU timing capture is available, so no performance improvement is demonstrated.
+- **Status:** Not run (performance objective not verified)
+- **Evidence:** Source change in `assets/shaders/sky.frag`; integrated CI runs `45011743629` and `45011743614`; user report that the stutter remains.
 - **Issues and limitations:** This first pass optimizes the most obvious expensive shader path. The renderer still submits one frame at a time and waits on a fence in the frame loop; CPU/GPU timing is not yet instrumented, so this shader may not be the only cause of camera-motion stutter.
 - **Follow-up:**
-  1. Build the APK and confirm shader compilation.
-  2. Compare the same camera movement on the physical Galaxy A14 before/after, if the previous APK remains available.
-  3. Capture GPU/frame timing if possible and inspect whether the remaining bottleneck is cloud shading, sea shading, CPU submission, or synchronization.
-  4. Review cloud visual quality before any further quality reduction.
+  1. Capture repeatable frame-time/FPS observations during the same camera movement on the physical Galaxy A14.
+  2. Instrument CPU submission and GPU timing if available; inspect cloud shading, sea shading, CPU submission, and fence synchronization separately.
+  3. Review cloud visual quality before any further quality reduction.
