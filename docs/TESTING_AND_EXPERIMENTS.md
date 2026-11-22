@@ -160,3 +160,26 @@ Copy this section for each new experiment.
 - **Change:** Apply the Vulkan positive-height viewport Y inversion in the shared perspective projection (`m[5]` negative), and align the full-screen sky ray's vertical NDC mapping with the same top-left screen convention. This is a coordinate correction, not a device rotation or UI transform.
 - **Tests:** Updated the perspective-matrix assertion to require a negative Y scale. Device visual confirmation is still required.
 - **Status:** Pending CI and device verification.
+
+
+### [EXP-004] First Mobile Performance Optimization — Volumetric Cloud Shader
+
+- **Date:** 2026-11-22
+- **Subsystem / feature:** Full-screen sky fragment shader, volumetric cloud density sampling, and camera-motion responsiveness.
+- **Branch / commit:** `experiment/sea-visible-preview` / implementation commit `d4ecdad9b21a14596f76c5debce416631958a387`.
+- **Environment:** User-reported first visible frame stutter on camera movement. Physical-device frame-time, GPU timing, and thermal measurements have not yet been captured.
+- **Objective:** Reduce the per-frame cost of volumetric cloud rendering on mobile GPUs while retaining the volumetric rendering approach and existing sky/ocean systems.
+- **Changes made:**
+  1. Reduced cloud ray-march samples from 12 to 8 (one-third fewer march iterations).
+  2. Reduced cloud density noise from three octaves to two, retaining the broad low-frequency cloud structure while removing one complete 3D-noise evaluation per march sample.
+  3. Kept the cloud layer bounds, wind displacement, weather controls, and early transmittance termination intact.
+- **Expected result:** Lower fragment-shader workload during camera movement, with a possible small reduction in fine cloud detail. This is a workload reduction estimate, not a measured FPS or frame-time improvement.
+- **Observed result:** Pending build and physical-device comparison. No claim of measured performance improvement is made.
+- **Status:** Not run
+- **Evidence:** Source change in `assets/shaders/sky.frag`; CI and device test evidence to be added after execution.
+- **Issues and limitations:** This first pass optimizes the most obvious expensive shader path. The renderer still submits one frame at a time and waits on a fence in the frame loop; CPU/GPU timing is not yet instrumented, so this shader may not be the only cause of camera-motion stutter.
+- **Follow-up:**
+  1. Build the APK and confirm shader compilation.
+  2. Compare the same camera movement on the physical Galaxy A14 before/after, if the previous APK remains available.
+  3. Capture GPU/frame timing if possible and inspect whether the remaining bottleneck is cloud shading, sea shading, CPU submission, or synchronization.
+  4. Review cloud visual quality before any further quality reduction.
