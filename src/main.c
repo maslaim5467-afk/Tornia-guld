@@ -742,6 +742,9 @@ done:
    if(e->sky_pipe){vkDestroyPipeline(e->dev,e->sky_pipe,NULL);e->sky_pipe=VK_NULL_HANDLE;}
    if(e->sky_layout){vkDestroyPipelineLayout(e->dev,e->sky_layout,NULL);e->sky_layout=VK_NULL_HANDLE;}
   if(e->terrain_pipe){vkDestroyPipeline(e->dev,e->terrain_pipe,NULL);e->terrain_pipe=VK_NULL_HANDLE;}
+  if(e->terrain_layout){vkDestroyPipelineLayout(e->dev,e->terrain_layout,NULL);e->terrain_layout=VK_NULL_HANDLE;}
+  if(e->terrain_scene){tg_terrain_test_scene_destroy(e->dev,e->terrain_scene);e->terrain_scene=NULL;}
+  if(e->terrain_pipe){vkDestroyPipeline(e->dev,e->terrain_pipe,NULL);e->terrain_pipe=VK_NULL_HANDLE;}
    if(e->terrain_layout){vkDestroyPipelineLayout(e->dev,e->terrain_layout,NULL);e->terrain_layout=VK_NULL_HANDLE;}
    if(e->terrain_scene){tg_terrain_test_scene_destroy(e->dev,e->terrain_scene);e->terrain_scene=NULL;}
    if(e->sea_pipe){vkDestroyPipeline(e->dev,e->sea_pipe,NULL);e->sea_pipe=VK_NULL_HANDLE;}
@@ -1058,7 +1061,7 @@ static void closevk(E*e){
  if(e->in)vkDestroyInstance(e->in,0);
  free(e->imgs);free(e->views);free(e->fb);free(e->cmd);
  e->imgs=NULL;e->views=NULL;e->fb=NULL;e->cmd=NULL;e->n=0u;
- e->ready=0;e->sea_renderer_ready=0;e->sea_renderer_attempted=0;e->sea_draw_logged=0;e->terrain_renderer_ready=0;e->terrain_renderer_attempted=0;e->terrain_draw_logged=0;
+ e->ready=0;e->sea_renderer_ready=0;e->sea_renderer_attempted=0;e->sea_draw_logged=0;e->terrain_renderer_ready=0;e->terrain_renderer_attempted=0;e->terrain_draw_logged=0;e->terrain_renderer_ready=0;e->terrain_renderer_attempted=0;e->terrain_draw_logged=0;
  memset(&e->in,0,sizeof(e->in));
  e->dev=VK_NULL_HANDLE;e->surface=VK_NULL_HANDLE;e->sw=VK_NULL_HANDLE;e->gpu=VK_NULL_HANDLE;e->q=VK_NULL_HANDLE;
  e->rp=VK_NULL_HANDLE;e->pipe=VK_NULL_HANDLE;e->layout=VK_NULL_HANDLE;e->pool=VK_NULL_HANDLE;
