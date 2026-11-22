@@ -1,0 +1,19 @@
+name: Animation system tests
+
+on:
+  push:
+    branches: [main, "feature/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  animation-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Compile animation tests
+        run: cc -std=c11 -Wall -Wextra -Werror -pedantic src/animation.c tests/animation_test.c -o /tmp/animation_test
+      - name: Run animation tests
+        run: /tmp/animation_test
