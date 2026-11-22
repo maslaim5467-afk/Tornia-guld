@@ -989,6 +989,8 @@ static void closevk(E*e){
  if(e->dev)vkDeviceWaitIdle(e->dev);
  if(e->dev){
   if(e->sun_pipe){vkDestroyPipeline(e->dev,e->sun_pipe,NULL);e->sun_pipe=VK_NULL_HANDLE;}
+  if(e->sky_pipe){vkDestroyPipeline(e->dev,e->sky_pipe,NULL);e->sky_pipe=VK_NULL_HANDLE;}
+  if(e->sky_layout){vkDestroyPipelineLayout(e->dev,e->sky_layout,NULL);e->sky_layout=VK_NULL_HANDLE;}
   if(e->sea_pipe){vkDestroyPipeline(e->dev,e->sea_pipe,NULL);e->sea_pipe=VK_NULL_HANDLE;}
   if(e->sea_layout){vkDestroyPipelineLayout(e->dev,e->sea_layout,NULL);e->sea_layout=VK_NULL_HANDLE;}
   if(e->sea_scene){tg_sea_test_scene_destroy(e->dev,e->sea_scene);e->sea_scene=NULL;}
