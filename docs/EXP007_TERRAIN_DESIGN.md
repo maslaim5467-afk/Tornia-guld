@@ -34,3 +34,19 @@ The dedicated C test checks deterministic output, mesh dimensions and bounds, no
 2. Define a dedicated terrain vertex input/shader/pipeline or a safe minimal position-only terrain pass.
 3. Integrate a bounded terrain scene without changing sea/sky behavior.
 4. Measure on Galaxy A14 before adding chunk splitting, erosion, culling, or LOD.
+
+## Vulkan preview integration (second implementation slice)
+
+- Added `src/terrain_test_scene.h/.c`: generates the deterministic baseline and uploads its mesh through the existing Vulkan mesh uploader. CPU terrain data and the GPU mesh are owned by the scene object.
+- Added dedicated `terrain.vert` and `terrain.frag` shaders. The vertex stage transforms the position-only mesh; the fragment stage derives a face normal from screen-space position derivatives and applies simple height tint plus diffuse lighting. This avoids changing the shared mesh vertex layout or the sea shader contract.
+- Added a dedicated terrain graphics pipeline and a separate menu entry, **TERRAIN TEST**. The existing construction/ocean screen remains a separate scene.
+- The terrain preview uses the existing 3D camera gesture path (drag to orbit; two-finger gesture translates/zooms through the camera helper).
+- Vulkan terrain resources are released after device idle during shutdown.
+- `build.sh` now compiles both terrain shaders into SPIR-V before the Android native build.
+
+## Current scope and caveats
+
+- The full 512 × 512 heightfield is currently one GPU mesh, not 64 uploaded chunks. The 8 × 8 / 64 m chunk grid remains the next management experiment.
+- No frustum culling, LOD, streaming, erosion, water, or vegetation is implemented.
+- Height-derived fragment normals are a preview technique. The next quality step is a dedicated terrain vertex format with precomputed normals and UVs, coordinated with an explicit terrain shader interface.
+- Automated C tests passed on the terrain implementation branch. The Android APK workflow for the complete Vulkan preview is still pending at the time of this update; physical-device rendering and performance are not yet verified.
