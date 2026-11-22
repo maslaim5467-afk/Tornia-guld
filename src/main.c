@@ -11,6 +11,7 @@
 #include "camera3d.h"
 #include "sea_camera.h"
 #include "sea_test_scene.h"
+#include "terrain_test_scene.h"
 #include "gpu_mesh_vk.h"
 #include "weather.h"
 #include <stdlib.h>
@@ -36,10 +37,11 @@ typedef struct {
  uint32_t qf,w,h,n; VkSwapchainKHR sw; VkFormat fmt; VkImage *imgs; VkImageView *views; VkFramebuffer *fb;
  VkRenderPass rp; VkPipelineLayout layout; VkPipeline pipe; VkCommandPool pool; VkCommandBuffer *cmd;
  VkImage depth_image; VkDeviceMemory depth_memory; VkImageView depth_view; VkFormat depth_format;
- TgSeaTestScene *sea_scene; TgCamera3D sea_camera;
- VkPipeline sea_pipe; VkPipeline sun_pipe; VkPipeline sky_pipe; VkPipelineLayout sea_layout; VkPipelineLayout sky_layout;
+ TgSeaTestScene *sea_scene; TgTerrainTestScene *terrain_scene; TgCamera3D sea_camera;
+ VkPipeline sea_pipe; VkPipeline sun_pipe; VkPipeline sky_pipe; VkPipeline terrain_pipe; VkPipelineLayout sea_layout; VkPipelineLayout sky_layout; VkPipelineLayout terrain_layout;
  uint32_t sun_start,sun_nv;
  int sea_renderer_attempted,sea_renderer_ready,sea_draw_logged;
+ int terrain_renderer_attempted,terrain_renderer_ready,terrain_draw_logged;
   float sea_time_seconds,sea_yaw,sea_pitch;
  TgWeatherState weather;
  int sea_touch_mode,sea_pointer_a,sea_pointer_b;
@@ -295,14 +297,11 @@ static void draw_world(E*e){
 }
 
 static void menu(E*e){
- e->nv=0;e->sky_nv=0;float cx=e->w*.5f,bw=e->w*.36f,bh=e->h*.14f,bx=cx-bw/2,by=e->h*.52f;
- push(e,0,0,e->w,e->h,.035f,.052f,.07f);
- label(e,"TORNIA_GULD",cx-84,e->h*.20f,4,.91f,.82f,.63f);
- 
- push(e,bx,by,bw,bh,.62f,.45f,.23f);push(e,bx+3,by+3,bw-6,bh-6,.10f,.12f,.14f);
- label(e,"START GAME",cx-59,by+bh/2-7,2,.96f,.87f,.70f);
- float ey=by+bh+e->h*.045f;push(e,bx,ey,bw,bh,.38f,.4f,.42f);push(e,bx+3,ey+3,bw-6,bh-6,.09f,.11f,.13f);
- label(e,"EXIT",cx-20,ey+bh/2-7,2,.85f,.86f,.87f);
+ e->nv=0;e->sky_nv=0;float cx=e->w*.5f,bw=e->w*.36f,bh=e->h*.11f,bx=cx-bw/2,by=e->h*.42f;
+ push(e,0,0,e->w,e->h,.035f,.052f,.07f);label(e,"TORNIA_GULD",cx-84,e->h*.20f,4,.91f,.82f,.63f);
+ push(e,bx,by,bw,bh,.62f,.45f,.23f);push(e,bx+3,by+3,bw-6,bh-6,.10f,.12f,.14f);label(e,"START GAME",cx-59,by+bh/2-7,2,.96f,.87f,.70f);
+ float ty=by+bh+e->h*.035f;push(e,bx,ty,bw,bh,.25f,.43f,.28f);push(e,bx+3,ty+3,bw-6,bh-6,.08f,.12f,.10f);label(e,"TERRAIN TEST",cx-68,ty+bh/2-7,2,.78f,.92f,.76f);
+ float ey=ty+bh+e->h*.035f;push(e,bx,ey,bw,bh,.38f,.4f,.42f);push(e,bx+3,ey+3,bw-6,bh-6,.09f,.11f,.13f);label(e,"EXIT",cx-20,ey+bh/2-7,2,.85f,.86f,.87f);
  if(e->notice){float my=e->h*.84f,mw=e->w*.55f;push(e,cx-mw/2,my,mw,e->h*.11f,.60f,.43f,.22f);push(e,cx-mw/2+3,my+3,mw-6,e->h*.11f-6,.08f,.10f,.12f);label(e,"COMING SOON",cx-49,my+e->h*.035f,1.5f,.98f,.88f,.72f);}
 }
 static void push_sky_quad(E*e){
@@ -655,6 +654,55 @@ failed:
 }
 
 
+static int create_terrain_pipeline(E*e){
+ VkShaderModule vs=VK_NULL_HANDLE,fs=VK_NULL_HANDLE;
+ VkPushConstantRange range={.stageFlags=VK_SHADER_STAGE_VERTEX_BIT,.offset=0,.size=(uint32_t)sizeof(TgMat4)};
+ VkPipelineLayoutCreateInfo li={.sType=VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,.pushConstantRangeCount=1,.pPushConstantRanges=&range};
+ VkPipelineShaderStageCreateInfo st[2];
+ VkVertexInputBindingDescription bd={.binding=0,.stride=(uint32_t)sizeof(TgMeshVertex3D),.inputRate=VK_VERTEX_INPUT_RATE_VERTEX};
+ VkVertexInputAttributeDescription at={.location=0,.binding=0,.format=VK_FORMAT_R32G32B32_SFLOAT,.offset=0};
+ VkPipelineVertexInputStateCreateInfo vx={.sType=VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,.vertexBindingDescriptionCount=1,.pVertexBindingDescriptions=&bd,.vertexAttributeDescriptionCount=1,.pVertexAttributeDescriptions=&at};
+ VkPipelineInputAssemblyStateCreateInfo ia={.sType=VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,.topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST};
+ VkPipelineViewportStateCreateInfo vp={.sType=VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,.viewportCount=1,.scissorCount=1};
+ VkPipelineRasterizationStateCreateInfo rs={.sType=VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,.polygonMode=VK_POLYGON_MODE_FILL,.cullMode=VK_CULL_MODE_NONE,.lineWidth=1.0f};
+ VkPipelineMultisampleStateCreateInfo ms={.sType=VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT};
+ VkPipelineDepthStencilStateCreateInfo ds={.sType=VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,.depthTestEnable=VK_TRUE,.depthWriteEnable=VK_TRUE,.depthCompareOp=VK_COMPARE_OP_LESS,.depthBoundsTestEnable=VK_FALSE,.stencilTestEnable=VK_FALSE};
+ VkPipelineColorBlendAttachmentState ba={.blendEnable=VK_FALSE,.colorWriteMask=15};
+ VkPipelineColorBlendStateCreateInfo cb={.sType=VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,.attachmentCount=1,.pAttachments=&ba};
+ VkDynamicState dyn[]={VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR};
+ VkPipelineDynamicStateCreateInfo dy={.sType=VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,.dynamicStateCount=2,.pDynamicStates=dyn};
+ VkGraphicsPipelineCreateInfo pi={.sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,.stageCount=2,.pStages=st,.pVertexInputState=&vx,.pInputAssemblyState=&ia,.pViewportState=&vp,.pRasterizationState=&rs,.pMultisampleState=&ms,.pDepthStencilState=&ds,.pColorBlendState=&cb,.pDynamicState=&dy,.layout=VK_NULL_HANDLE,.renderPass=e->rp,.subpass=0,.basePipelineIndex=-1};
+ VkResult vr=VK_ERROR_INITIALIZATION_FAILED;
+ vs=shader(e,"shaders/terrain.vert.spv");fs=shader(e,"shaders/terrain.frag.spv");if(!vs||!fs)goto done;
+ st[0]=(VkPipelineShaderStageCreateInfo){.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_VERTEX_BIT,.module=vs,.pName="main"};
+ st[1]=(VkPipelineShaderStageCreateInfo){.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_FRAGMENT_BIT,.module=fs,.pName="main"};
+ vr=vkCreatePipelineLayout(e->dev,&li,NULL,&e->terrain_layout);if(vr!=VK_SUCCESS)goto done;
+ pi.layout=e->terrain_layout;vr=vkCreateGraphicsPipelines(e->dev,VK_NULL_HANDLE,1,&pi,NULL,&e->terrain_pipe);
+ done:
+ if(vs)vkDestroyShaderModule(e->dev,vs,NULL);if(fs)vkDestroyShaderModule(e->dev,fs,NULL);
+ if(vr!=VK_SUCCESS){ERR("TERRAIN pipeline failed: VkResult=%d",(int)vr);if(e->terrain_pipe)vkDestroyPipeline(e->dev,e->terrain_pipe,NULL);if(e->terrain_layout)vkDestroyPipelineLayout(e->dev,e->terrain_layout,NULL);e->terrain_pipe=VK_NULL_HANDLE;e->terrain_layout=VK_NULL_HANDLE;return -1;}
+ LOG("EXP-007 terrain graphics pipeline ready");return 0;
+}
+static int initialize_terrain_renderer(E*e){
+ VkResult upload_result=VK_ERROR_INITIALIZATION_FAILED;const TgGpuMeshVk*mesh;TgTerrainConfig config;const TgTerrainHeightStats*stats;
+ if(!e||e->dev==VK_NULL_HANDLE||e->q==VK_NULL_HANDLE||e->rp==VK_NULL_HANDLE||!e->w||!e->h)return -1;
+ config=tg_terrain_default_config(0x0072026u);
+ LOG("EXP-007 generating terrain: %.0fm x %.0fm, grid=%ux%u seed=%u",config.width,config.depth,config.segments_x,config.segments_z,config.seed);
+ if(tg_terrain_test_scene_create(e->gpu,e->dev,e->q,e->qf,config.seed,&e->terrain_scene,&upload_result)!=0){ERR("EXP-007 terrain generation/upload failed: VkResult=%d",(int)upload_result);goto failed;}
+ mesh=tg_terrain_test_scene_gpu_mesh(e->terrain_scene);stats=tg_terrain_test_scene_stats(e->terrain_scene);
+ if(!mesh||tg_gpu_mesh_vk_buffer(mesh)==VK_NULL_HANDLE||!tg_gpu_mesh_vk_index_count(mesh)||!stats)goto failed;
+ LOG("EXP-007 terrain ready: indices=%u heights=[%.2f,%.2f], mean=%.2f",tg_gpu_mesh_vk_index_count(mesh),stats->minimum,stats->maximum,stats->mean);
+ e->sea_yaw=0.0f;e->sea_pitch=-0.48f;
+ if(tg_camera3d_init(&e->sea_camera,tg_vec3(0.0f,155.0f,245.0f),tg_vec3(0.0f,18.0f,0.0f),tg_vec3(0.0f,1.0f,0.0f),0.90f,(float)e->w/(float)e->h,0.1f,1800.0f)!=0)goto failed;
+ e->sea_touch_mode=0;e->sea_pointer_a=-1;e->sea_pointer_b=-1;
+ if(create_terrain_pipeline(e)!=0)goto failed;
+ e->terrain_renderer_ready=1;LOG("EXP-007 terrain renderer initialized");return 0;
+ failed:
+ if(e->terrain_pipe){vkDestroyPipeline(e->dev,e->terrain_pipe,NULL);e->terrain_pipe=VK_NULL_HANDLE;}
+ if(e->terrain_layout){vkDestroyPipelineLayout(e->dev,e->terrain_layout,NULL);e->terrain_layout=VK_NULL_HANDLE;}
+ if(e->terrain_scene){tg_terrain_test_scene_destroy(e->dev,e->terrain_scene);e->terrain_scene=NULL;}
+ e->terrain_renderer_ready=0;return -1;
+}
 static int create_sea_pipeline(E*e){
  VkShaderModule vs=VK_NULL_HANDLE,fs=VK_NULL_HANDLE;
  VkPushConstantRange range={.stageFlags=VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT,.offset=0,.size=(uint32_t)sizeof(TgSeaPushConstants)};
@@ -693,8 +741,11 @@ done:
   if(e->sun_pipe){vkDestroyPipeline(e->dev,e->sun_pipe,NULL);e->sun_pipe=VK_NULL_HANDLE;}
    if(e->sky_pipe){vkDestroyPipeline(e->dev,e->sky_pipe,NULL);e->sky_pipe=VK_NULL_HANDLE;}
    if(e->sky_layout){vkDestroyPipelineLayout(e->dev,e->sky_layout,NULL);e->sky_layout=VK_NULL_HANDLE;}
-  if(e->sea_pipe){vkDestroyPipeline(e->dev,e->sea_pipe,NULL);e->sea_pipe=VK_NULL_HANDLE;}
-  if(e->sea_layout){vkDestroyPipelineLayout(e->dev,e->sea_layout,NULL);e->sea_layout=VK_NULL_HANDLE;}
+  if(e->terrain_pipe){vkDestroyPipeline(e->dev,e->terrain_pipe,NULL);e->terrain_pipe=VK_NULL_HANDLE;}
+   if(e->terrain_layout){vkDestroyPipelineLayout(e->dev,e->terrain_layout,NULL);e->terrain_layout=VK_NULL_HANDLE;}
+   if(e->terrain_scene){tg_terrain_test_scene_destroy(e->dev,e->terrain_scene);e->terrain_scene=NULL;}
+   if(e->sea_pipe){vkDestroyPipeline(e->dev,e->sea_pipe,NULL);e->sea_pipe=VK_NULL_HANDLE;}
+   if(e->sea_layout){vkDestroyPipelineLayout(e->dev,e->sea_layout,NULL);e->sea_layout=VK_NULL_HANDLE;}
   return -1;
  }
  return 0;
@@ -867,13 +918,14 @@ static void frame(E*e){
  }
  VkResult vr=vkWaitForFences(e->dev,1,&e->fence,VK_TRUE,UINT64_MAX);
  if(vr!=VK_SUCCESS){ERR("FRAME wait-fence failed: VkResult=%d",(int)vr);e->ready=0;return;}
- if(e->scene==2&&!e->sea_renderer_attempted){
+ if(e->scene==3&&!e->terrain_renderer_attempted){e->terrain_renderer_attempted=1;if(initialize_terrain_renderer(e)!=0)ERR("EXP-007 terrain initialization failed");}
+  if(e->scene==2&&!e->sea_renderer_attempted){
   e->sea_renderer_attempted=1;LOG("SEA_STAGE activation requested from BUILDING screen");
   if(initialize_sea_renderer(e)!=0)ERR("SEA_STAGE activation failed; retaining safe 2D BUILDING screen");
  }
  uint32_t ix=0;vr=vkAcquireNextImageKHR(e->dev,e->sw,UINT64_MAX,e->semA,VK_NULL_HANDLE,&ix);
  if(vr!=VK_SUCCESS&&vr!=VK_SUBOPTIMAL_KHR){ERR("FRAME acquire-image failed: VkResult=%d",(int)vr);return;}
- if(e->scene==1)draw_world(e);else if(e->scene==2)draw_building(e);else menu(e);
+ if(e->scene==1)draw_world(e);else if(e->scene==2)draw_building(e);else if(e->scene==3){e->nv=0;e->sky_nv=0;push(e,0,0,e->w,48,.025f,.065f,.035f);label(e,"EXP007 TERRAIN",18,15,2,.91f,.88f,.68f);label(e,"DRAG TO ORBIT CAMERA",18,e->h-28,1.4f,.78f,.87f,.70f);}else menu(e);
  void*mapped=NULL;vr=vkMapMemory(e->dev,e->vm,0,e->nv*sizeof(V),0,&mapped);
  if(vr!=VK_SUCCESS){ERR("FRAME vertex-map failed: VkResult=%d",(int)vr);return;}
  memcpy(mapped,e->v,e->nv*sizeof(V));vkUnmapMemory(e->dev,e->vm);
@@ -905,7 +957,11 @@ static void frame(E*e){
    }else vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,e->pipe);
    vkCmdDraw(cb,e->sky_nv,1,0,0);
   }
- if(e->scene==2&&e->sea_renderer_ready&&e->sea_scene){
+ if(e->scene==3&&e->terrain_renderer_ready&&e->terrain_scene){
+   const TgGpuMeshVk*tm=tg_terrain_test_scene_gpu_mesh(e->terrain_scene);
+   if(tm&&tg_gpu_mesh_vk_buffer(tm)!=VK_NULL_HANDLE){VkBuffer tb=tg_gpu_mesh_vk_buffer(tm);VkDeviceSize to=tg_gpu_mesh_vk_vertex_offset(tm);vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,e->terrain_pipe);vkCmdPushConstants(cb,e->terrain_layout,VK_SHADER_STAGE_VERTEX_BIT,0,(uint32_t)sizeof(TgMat4),&e->sea_camera.view_projection);vkCmdBindVertexBuffers(cb,0,1,&tb,&to);vkCmdBindIndexBuffer(cb,tb,tg_gpu_mesh_vk_index_offset(tm),VK_INDEX_TYPE_UINT32);vkCmdDrawIndexed(cb,tg_gpu_mesh_vk_index_count(tm),1,0,0,0);if(!e->terrain_draw_logged){LOG("EXP-007 first indexed terrain draw: %u indices",tg_gpu_mesh_vk_index_count(tm));e->terrain_draw_logged=1;}}
+  }
+  if(e->scene==2&&e->sea_renderer_ready&&e->sea_scene){
   const TgGpuMeshVk*mesh=tg_sea_test_scene_gpu_mesh(e->sea_scene);
   if(mesh){
    VkBuffer buffer=tg_gpu_mesh_vk_buffer(mesh);VkDeviceSize vertex_offset=tg_gpu_mesh_vk_vertex_offset(mesh);
@@ -1002,7 +1058,7 @@ static void closevk(E*e){
  if(e->in)vkDestroyInstance(e->in,0);
  free(e->imgs);free(e->views);free(e->fb);free(e->cmd);
  e->imgs=NULL;e->views=NULL;e->fb=NULL;e->cmd=NULL;e->n=0u;
- e->ready=0;e->sea_renderer_ready=0;e->sea_renderer_attempted=0;e->sea_draw_logged=0;
+ e->ready=0;e->sea_renderer_ready=0;e->sea_renderer_attempted=0;e->sea_draw_logged=0;e->terrain_renderer_ready=0;e->terrain_renderer_attempted=0;e->terrain_draw_logged=0;
  memset(&e->in,0,sizeof(e->in));
  e->dev=VK_NULL_HANDLE;e->surface=VK_NULL_HANDLE;e->sw=VK_NULL_HANDLE;e->gpu=VK_NULL_HANDLE;e->q=VK_NULL_HANDLE;
  e->rp=VK_NULL_HANDLE;e->pipe=VK_NULL_HANDLE;e->layout=VK_NULL_HANDLE;e->pool=VK_NULL_HANDLE;
@@ -1020,7 +1076,7 @@ static int32_t input(struct android_app*a,AInputEvent*ev){
  float x=AMotionEvent_getX(ev,(size_t)pointer_index);
  float y=AMotionEvent_getY(ev,(size_t)pointer_index);
 
- if(e->scene==2&&e->sea_renderer_ready){
+ if((e->scene==2&&e->sea_renderer_ready)||(e->scene==3&&e->terrain_renderer_ready)){
   if(action==AMOTION_EVENT_ACTION_DOWN){
    e->sea_touch_mode=1;e->dragging=1;e->camera_pointer_id=pointer_id;
    e->last_x=x;e->last_y=y;e->sea_pointer_a=pointer_id;e->sea_pointer_b=-1;
@@ -1087,10 +1143,12 @@ static int32_t input(struct android_app*a,AInputEvent*ev){
  }
  if(e->scene!=1){
   if(e->scene==0&&action==AMOTION_EVENT_ACTION_UP){
-   float cx=e->w*.5f,bw=e->w*.36f,bx=cx-bw/2,by=e->h*.52f,bh=e->h*.14f;
-   if(x>=bx&&x<=bx+bw&&y>=by&&y<=by+bh){e->scene=2;e->notice=0;LOG("Start requested; showing construction state");return 1;}
-   float ey=by+bh+e->h*.045f;
-   if(x>=bx&&x<=bx+bw&&y>=ey&&y<=ey+bh){ANativeActivity_finish(a->activity);return 1;}
+   float cx=e->w*.5f,bw=e->w*.36f,bx=cx-bw/2,bh=e->h*.11f,by=e->h*.42f;
+    if(x>=bx&&x<=bx+bw&&y>=by&&y<=by+bh){e->scene=2;e->notice=0;LOG("Start requested; showing construction state");return 1;}
+    float ty=by+bh+e->h*.035f;
+    if(x>=bx&&x<=bx+bw&&y>=ty&&y<=ty+bh){e->scene=3;e->terrain_renderer_attempted=0;e->terrain_renderer_ready=0;e->notice=0;LOG("EXP-007 terrain test requested");return 1;}
+    float ey=ty+bh+e->h*.035f;
+    if(x>=bx&&x<=bx+bw&&y>=ey&&y<=ey+bh){ANativeActivity_finish(a->activity);return 1;}
   }
   return 1;
  }
