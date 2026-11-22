@@ -125,7 +125,8 @@ int tg_mat4_perspective_vk(float fov_y_radians, float aspect,
     if (!isfinite(tangent) || tangent <= TG_EPSILON) return -1;
 
     result.m[0] = 1.0f / (aspect * tangent);
-    result.m[5] = 1.0f / tangent;
+    /* Vulkan's positive-height viewport has its origin at the top; flip Y here. */
+    result.m[5] = -1.0f / tangent;
     result.m[10] = far_plane / (near_plane - far_plane);
     result.m[11] = -1.0f;
     result.m[14] = (far_plane * near_plane) / (near_plane - far_plane);
