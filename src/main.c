@@ -1046,8 +1046,9 @@ static int32_t input(struct android_app*a,AInputEvent*ev){
     float sensitivity=scale>0.0f?18.0f/scale:0.018f;
     if(tg_sea_camera_translate(&e->sea_camera,e->sea_yaw,e->sea_pitch,
                                (e->sea_touch_x-cx)*sensitivity,
-                           (cy-e->sea_touch_y)*sensitivity,
-                           (distance-e->sea_touch_distance)*sensitivity*0.75f);
+                               (cy-e->sea_touch_y)*sensitivity,
+                               (distance-e->sea_touch_distance)*sensitivity*0.75f)!=0)
+     ERR("SEA_STAGE free-camera translation failed");
     e->sea_touch_x=cx;e->sea_touch_y=cy;e->sea_touch_distance=distance;
    }else if(count==1u&&e->sea_touch_mode==1&&e->dragging){
     int id=AMotionEvent_getPointerId(ev,0);
