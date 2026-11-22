@@ -9,6 +9,7 @@
 #include "animation.h"
 #include "player.h"
 #include "camera3d.h"
+#include "sea_camera.h"
 #include "sea_test_scene.h"
 #include "gpu_mesh_vk.h"
 #include "weather.h"
@@ -55,30 +56,6 @@ typedef struct {
 
 } E;
 
-static TgVec3 sea_camera_forward(const E*e){
- float cp=cosf(e->sea_pitch);
- return tg_vec3(sinf(e->sea_yaw)*cp,sinf(e->sea_pitch),-cosf(e->sea_yaw)*cp);
-}
-static void sea_camera_rebuild(E*e){
- TgVec3 forward=sea_camera_forward(e);
- TgVec3 target=tg_vec3(e->sea_camera.position.x+forward.x,
-                       e->sea_camera.position.y+forward.y,
-                       e->sea_camera.position.z+forward.z);
- if(tg_camera3d_set_pose(&e->sea_camera,e->sea_camera.position,target,
-                         tg_vec3(0.0f,1.0f,0.0f))!=0)
-  ERR("SEA_STAGE free-camera pose update failed");
-}
-static void sea_camera_translate(E*e,float right_amount,float up_amount,float forward_amount){
- float cy=cosf(e->sea_yaw),sy=sinf(e->sea_yaw);
- float cp=cosf(e->sea_pitch),sp=sinf(e->sea_pitch);
- TgVec3 right=tg_vec3(cy,0.0f,sy);
- TgVec3 up=tg_vec3(-sy*sp,cp,cy*sp);
- TgVec3 forward=sea_camera_forward(e);
- e->sea_camera.position.x+=right.x*right_amount+up.x*up_amount+forward.x*forward_amount;
- e->sea_camera.position.y+=right.y*right_amount+up.y*up_amount+forward.y*forward_amount;
- e->sea_camera.position.z+=right.z*right_amount+up.z*up_amount+forward.z*forward_amount;
- sea_camera_rebuild(e);
-}
 static void push(E*e,float x,float y,float w,float h,float r,float g,float b){
  float l=x*2/e->w-1,rr=(x+w)*2/e->w-1,t=y*2/e->h-1,bb=(y+h)*2/e->h-1;
  V a={l,t,0,0,r,g,b,1,0},c={rr,t,0,0,r,g,b,1,0},d={rr,bb,0,0,r,g,b,1,0},f={l,bb,0,0,r,g,b,1,0};
@@ -806,7 +783,7 @@ static int initialize_sea_renderer(E*e){
  LOG("WEATHER 09:00 preset: wind %.1f m/s, clouds %.2f, rain %.1f mm/h",e->weather.wind_speed_mps,e->weather.cloud_coverage,e->weather.precipitation_mm_per_hour);
  {
   TgVec3 camera_position=tg_vec3(0.0f,7.0f,35.0f);
-  TgVec3 forward=sea_camera_forward(e);
+  TgVec3 forward=tg_sea_camera_forward(e->sea_yaw,e->sea_pitch);
   TgVec3 target=tg_vec3(camera_position.x+forward.x,
                         camera_position.y+forward.y,
                         camera_position.z+forward.z);
@@ -1067,7 +1044,8 @@ static int32_t input(struct android_app*a,AInputEvent*ev){
     float distance=hypotf(bx-ax,by-ay);
     float scale=(float)(e->w<e->h?e->w:e->h);
     float sensitivity=scale>0.0f?18.0f/scale:0.018f;
-    sea_camera_translate(e,(e->sea_touch_x-cx)*sensitivity,
+    if(tg_sea_camera_translate(&e->sea_camera,e->sea_yaw,e->sea_pitch,
+                               (e->sea_touch_x-cx)*sensitivity,
                            (cy-e->sea_touch_y)*sensitivity,
                            (distance-e->sea_touch_distance)*sensitivity*0.75f);
     e->sea_touch_x=cx;e->sea_touch_y=cy;e->sea_touch_distance=distance;
@@ -1081,7 +1059,8 @@ static int32_t input(struct android_app*a,AInputEvent*ev){
      if(e->sea_pitch < -1.48f)e->sea_pitch=-1.48f;
      if(e->sea_pitch >  1.48f)e->sea_pitch= 1.48f;
      e->last_x=px;e->last_y=py;
-     sea_camera_rebuild(e);
+     if(tg_sea_camera_rebuild(&e->sea_camera,e->sea_yaw,e->sea_pitch)!=0)
+       ERR("SEA_STAGE free-camera pose update failed");
     }
    }
    return 1;
