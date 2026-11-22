@@ -184,3 +184,40 @@ Copy this section for each new experiment.
   1. Capture repeatable frame-time/FPS observations during the same camera movement on the physical Galaxy A14.
   2. Instrument CPU submission and GPU timing if available; inspect cloud shading, sea shading, CPU submission, and fence synchronization separately.
   3. Review cloud visual quality before any further quality reduction.
+
+
+
+### [EXP-007] Procedural 3D Forest — Static Geometry and Loading-Time Preparation
+
+- **Date:** 2026-11-22 (experiment plan recorded; execution date not yet established)
+- **Subsystem / feature:** Procedural 3D geometry generation, static forest scene construction, resource preparation/loading, visibility handling, and Android runtime rendering.
+- **Branch / commit:** `experiment/procedural-forest-3d` / branch created from `main` at base commit `2e8ca343024ccb0d59d7852fa0dd3325a2435dbe`; implementation commit not yet available.
+- **Environment:** Intended target is the physical Samsung Galaxy A14 running Android 15, ARM64. Build configuration, display resolution, GPU/driver details, and exact test conditions must be recorded when the experiment is executed.
+- **Objective:** Evaluate Tornia-guld's ability to construct and render a **static 3D forest using procedurally generated geometry**, without relying on pre-made tree models or image-based tree assets. The initial experiment focuses on shifting suitable work into loading/resource-preparation time, then measuring the cost of rendering the prepared forest at runtime. This experiment complements the earlier procedural sea/sky work by evaluating scene geometry and object management rather than primarily full-screen environmental shader cost.
+- **Initial scope:**
+  1. Build a bounded, representative forest test area.
+  2. Generate tree structures (such as trunks, branches, and foliage geometry) through code and mesh data.
+  3. Keep the initial forest static: no animated foliage, wind simulation, moving characters, dynamic weather, or intentionally massive/million-object scene.
+  4. Prepare reusable geometry and other required resources during a defined loading phase where practical.
+  5. Evaluate visibility culling and distance-based levels of detail only as separately identifiable features; do not assume they are implemented or effective before measurement.
+  6. Keep the experiment isolated from the existing 2D renderer and sea/sky implementation; do not regress existing functionality.
+- **Prerequisites:**
+  1. Inspect the current 3D mesh, Vulkan resource, camera, and scene foundations before choosing the forest implementation path.
+  2. Define a bounded scene size, initial camera path/view, tree-generation parameters, and a reproducible tree count.
+  3. Decide which geometry/resource preparation can safely happen before runtime and which work must remain camera- or frame-dependent.
+  4. Record the target device, Android version, resolution, build configuration, and available GPU information.
+  5. Establish a repeatable baseline measurement procedure before adding culling or LOD.
+- **Procedure (incremental plan; execute one stage at a time):**
+  1. **Stage 1 — Single procedural tree:** Generate a simple tree from geometry in code. Verify mesh validity, normals/winding as applicable, scale, material appearance, and successful rendering. Do not use a pre-made tree model or tree image as the tree representation.
+  2. **Stage 2 — Small static forest:** Place a controlled number of generated trees in a bounded scene. Verify placement, depth, camera visibility, and stable rendering.
+  3. **Stage 3 — Loading-time preparation:** Move suitable one-time work (for example, tree mesh generation, instance-data construction, and reusable GPU-resource creation/upload where supported) into an explicit loading/preparation phase. Record loading duration and peak/retained memory. Do not move frame-dependent work into loading by assumption.
+  4. **Stage 4 — Runtime baseline:** Render the prepared static forest while moving the camera along a repeatable path. Record FPS/frame time, CPU time where available, GPU time where available, RAM, GPU memory/resource use where measurable, loading duration, and visual defects.
+  5. **Stage 5 — Visibility and distance optimization:** Add frustum/visibility culling and distance-based LOD as separate changes, one at a time. Repeat the same camera path and measurements against the Stage 4 baseline.
+  6. Compare each stage on the same device, resolution, scene, camera path, and build configuration. Record both improvements and regressions; do not infer performance gains from reduced source or asset size alone.
+- **Expected result:** A bounded static 3D forest whose trees are generated from procedural geometry and whose reusable resources are prepared before normal runtime rendering where practical. The experiment should produce reproducible measurements separating loading cost from runtime rendering cost. Culling or LOD benefits, memory impact, and acceptable visual quality remain to be demonstrated by testing.
+- **Observed result:** Not recorded; the experiment has not yet been implemented or run.
+- **Status:** Not run
+- **Evidence:** To be added after implementation and execution: source commit, Android build details, screenshots/video, device and GPU details, loading-time measurements, repeatable frame-time/FPS observations, memory measurements, and logs.
+- **Issues and limitations:** Tree-generation method, geometry density, tree count, forest dimensions, material strategy, performance thresholds, and quantitative acceptance criteria remain to be defined. Procedural generation does not guarantee lower runtime cost or lower memory use; generated geometry and GPU buffers still consume resources. Loading-time preparation may increase peak memory or loading duration and must be measured.
+- **Changes made:** Experiment objective, scope, and staged test plan recorded only. No forest implementation, performance improvement, visual result, or test pass is claimed.
+- **Follow-up:** Inspect the current 3D renderer/resource path, implement and verify Stage 1 (one procedural tree), then proceed to a small bounded static forest only after recording the first stage's evidence.
