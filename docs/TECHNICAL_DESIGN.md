@@ -5,13 +5,13 @@
 > **Authority:** The project creator approves game-facing behavior and final technical scope.  
 > **Companion documents:** [GDD](GDD.md), [Project Overview](PROJECT_OVERVIEW.md), [Software Architecture](SOFTWARE_ARCHITECTURE.md), [Asset Specification](ASSET_SPECIFICATION.md).  
 >
-> **Reading rule:** This document separates verified project constraints, code observed in the development branch, approved architectural direction, proposed implementation details, and unresolved decisions. An approved capability direction is not proof that its implementation is complete. Anything not decided remains **TBD**.
+> **Reading rule:** This document separates verified project constraints, code observed in the integrated development snapshot, approved architectural direction, proposed implementation details, and unresolved decisions. An approved capability direction is not proof that its implementation is complete. Anything not decided remains **TBD**.
 
 ## 1. Purpose and scope
 
 This document describes the technical requirements and implementation considerations for the Android application and the custom Tornia-guld game engine. It translates the approved design direction into engineering concerns without redefining gameplay.
 
-**Engine graphics capability:** Tornia-guld is intended to support both 2D and 3D rendering as first-class engine capabilities. The engine will use distinct, modular 2D and 3D rendering systems coordinated through a shared graphics backend. This is an approved architectural direction; the 3D renderer and its supporting infrastructure are not yet verified as implemented.
+**Engine graphics capability:** Tornia-guld is intended to support both 2D and 3D rendering as first-class engine capabilities. The engine will use distinct, modular 2D and 3D rendering systems coordinated through a shared graphics backend. The 3D foundation is now partially implemented: math, camera, mesh, GPU layout/resource helpers, an experimental sea scene, weather state, and ocean/sky shaders exist. Dedicated renderer modules and general 2D/3D pass coordination remain incomplete.
 
 The initial game prototype remains focused on its 2D presentation. The engine architecture must nevertheless accommodate 3D scenes and future 2D/3D projects without requiring a separate engine or compromising the existing 2D path.
 
@@ -37,14 +37,14 @@ The Android API levels, NDK version, and build-tools versions recorded in [PROJE
 
 ## 3. Current implementation snapshot
 
-The following observations come from source files inspected on branch `feature/terrain-world-foundation`. They describe that branch snapshot and must not be interpreted as proof that the same code is already merged into `main`, release-ready, or fully tested.
+The following observations describe the integration snapshot prepared for `main`. CI and device validation are tracked separately; the presence of code does not imply release readiness or measured performance.
 
 ### 3.1 Application and rendering
 
 - `src/main.c` currently contains Android NativeActivity integration, Vulkan initialization and rendering, swapchain-related state, input event handling, sprite texture upload, animation configuration loading, world drawing, joystick drawing, and application lifecycle handling.
 - The application currently uses a central runtime state structure in `main.c`.
 - The current implementation is therefore a prototype with substantial platform and rendering responsibilities concentrated in one translation unit. Further modularization is a likely engineering task; its exact timing and boundaries are TBD.
-- The inspected rendering path is a 2D prototype. This document does not claim that a complete 3D renderer, 3D camera, mesh pipeline, or depth-tested scene is already implemented.
+- The 2D sprite/tilemap path and the experimental 3D sea/sky path coexist in the current application code. The 3D support modules are present, but much of the Vulkan setup and frame orchestration remains in `main.c`; this is not yet a cleanly separated pair of renderer modules.
 
 ### 3.2 Player movement
 
@@ -54,7 +54,7 @@ The following observations come from source files inspected on branch `feature/t
 
 ### 3.3 World and camera
 
-- `src/world.h` and `src/world.c` define a 30 × 30 tile grid, a current tile-size constant of 128 world units, deterministic seeded tile decoration, and camera reset/pan/clamp/follow and screen-to-world conversion functions.
+- `src/world.h` and `src/world.c` define the current prototype tile-grid data, deterministic seeded tile decoration, and camera reset/pan/clamp/follow and screen-to-world conversion functions. Grid dimensions and tile sizing remain prototype values, not final world-scale decisions.
 - This grid is a current prototype foundation. It does not establish the final world dimensions, world streaming design, geographic scale, terrain authoring pipeline, or final open-world implementation.
 
 ### 3.4 Animation
@@ -115,13 +115,13 @@ The exact composition model—including render order, render targets, depth isol
 
 | Capability | Status |
 |---|---|
-| Existing 2D Vulkan prototype | Present in inspected development-branch source; validation status must be tracked separately |
-| Modular shared renderer/backend architecture | Approved direction; implementation pending |
-| Dedicated 3D renderer module | Planned; not yet verified as implemented |
-| 3D mesh and camera systems | Planned; not yet verified as implemented |
-| Depth buffer and depth testing | Planned; not yet verified as implemented |
-| 3D materials and lighting | Planned; not yet verified as implemented |
-| Combined 2D/3D frame composition | Required architectural capability; implementation and validation pending |
+| Existing 2D Vulkan prototype | Present in the integrated source; automated world/player/animation tests pass, while full gameplay/device validation remains incomplete |
+| Modular shared renderer/backend architecture | Shared Vulkan path exists; dedicated renderer boundaries and coordinator remain incomplete |
+| Dedicated 3D renderer module | 3D support modules exist, but no complete standalone renderer3d module yet |
+| 3D mesh and camera systems | Implemented as foundational modules; automated tests pass |
+| Depth buffer and depth testing | Used by the current Vulkan 3D path; pipeline state still requires continued validation |
+| 3D materials and lighting | Experimental ocean/sky shaders include wave shading, Fresnel/GGX response, absorption approximation and atmospheric/cloud rendering; not a general material system |
+| Combined 2D/3D frame composition | Both paths exist in the application, but a general-purpose composition API and full regression/device matrix are not yet established |
 
 ## 5. Runtime responsibilities
 
@@ -132,8 +132,8 @@ The following responsibilities are required by the current direction. Their fina
 | Android platform layer | Application lifecycle, native window, asset access, touch events | Present in prototype code |
 | Vulkan backend | Device/swapchain setup, command submission, shared GPU resources | Basic Vulkan path present in prototype code; modular backend architecture pending |
 | 2D renderer | Sprite, tilemap, and 2D scene rendering | Basic 2D path present in prototype code |
-| 3D renderer | Mesh, camera, material, depth, and lighting rendering | Approved architectural target; implementation pending |
-| Renderer coordination | Coordinate 2D and 3D passes through the shared backend | Planned |
+| 3D renderer | Mesh, camera, material, depth, and lighting rendering | Foundational modules and experimental sea/sky path implemented; renderer orchestration remains in `main.c` |
+| Renderer coordination | Coordinate 2D and 3D passes through the shared backend | Partial application-level coordination; general coordinator not implemented |
 | Input layer | Convert touch input into game actions | Basic touch / joystick path present |
 | Player movement | Update player motion and world position | Basic player module present on development branch |
 | World representation | Store and generate prototype world tiles | Basic grid module present on development branch |

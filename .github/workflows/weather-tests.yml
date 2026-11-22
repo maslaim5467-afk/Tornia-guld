@@ -1,0 +1,13 @@
+name: Weather System Tests
+on:
+  push:
+    paths: ['src/weather.c','src/weather.h','tests/weather_test.c','.github/workflows/weather-tests.yml']
+  pull_request:
+    paths: ['src/weather.c','src/weather.h','tests/weather_test.c','.github/workflows/weather-tests.yml']
+jobs:
+  weather-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cc -std=c11 -Wall -Wextra -Werror src/weather.c tests/weather_test.c -lm -o weather_test
+      - run: ./weather_test

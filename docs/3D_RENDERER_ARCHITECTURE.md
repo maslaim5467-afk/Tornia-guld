@@ -1,0 +1,138 @@
+# 3D Renderer Architecture
+
+> **Implementation-status note (2026-11-22):** This document includes early foundation/design values that may describe an earlier prototype stage. For the current implemented state, test evidence, and known limitations, see [ENGINE_IMPLEMENTATION_STATUS.md](ENGINE_IMPLEMENTATION_STATUS.md). Where a historical value in this document conflicts with the current status report, the status report and current source code take precedence.
+
+
+## Status
+
+- **Architecture proposal:** initial baseline for the progressive bounded-sea experiment.
+- **Implemented:** portable `TgCamera3D`; CPU-side `TgMesh3D`; checked combined-buffer layout calculator; opaque Vulkan GPU mesh upload resource in `src/gpu_mesh_vk.h/.c`.
+- **CI:** the layout/math/camera/mesh suite passed on commit `bdd38f321d44f1e5601aade6225ee8c248ddd24e`; the Android `arm64-v8a` APK build, including compilation of the Vulkan upload module, also passed on that source commit (run `44790490617`).
+- **Backend contract:** ownership, staging/direct-memory paths, barriers, fence synchronization, and lifecycle rules are documented in [`3D_GPU_RESOURCE_DESIGN.md`](3D_GPU_RESOURCE_DESIGN.md).
+- **Integration:** `TgSeaTestScene` now owns a 20 x 20 XZ CPU plane and opaque GPU mesh. `main.c` invokes the upload during Vulkan startup and releases the GPU mesh after device idle, before device destruction.
+- **Implemented:** `main.c` creates a supported depth target, uses a color+depth render pass, builds a distinct sea graphics pipeline with depth test/write, supplies `TgCamera3D` view-projection via push constants, and records an indexed plane draw before the BUILDING screen's 2D overlay.
+- **Build validation:** Android `arm64-v8a` APK CI succeeded on the implementation commit. A physical-device visual check of this new pipeline is still pending; no screenshot or frame-time measurement is claimed.
+- **Not implemented yet:** animated waves, lighting, reflections, shoreline, and a reusable standalone `renderer3d` module.
+- **Target branch:** `feature/3d-renderer-foundation`.
+- **Compatibility rule:** the existing 2D path remains operational and is not replaced.
+
+## Goals
+
+1. Introduce a 3D rendering path that can coexist with the existing 2D path.
+2. Begin with the smallest useful 3D scene: one finite, flat, uniformly colored water plane.
+3. Keep platform-independent scene data separate from Android and Vulkan resource management.
+4. Make GPU resource ownership and lifetime explicit.
+5. Add complexity only after the preceding stage has been built, measured, and reviewed.
+
+## Non-goals for the first sea stage
+
+- Infinite or streamed oceans.
+- Waves, water simulation, reflections, refraction, transparency, foam, shoreline, or post-processing.
+- A general-purpose material editor or physics/water simulation system.
+- Replacing or rewriting the existing 2D renderer.
+- Claiming 2D/3D same-frame composition before it has been implemented and tested.
+
+## Proposed module boundaries
+
+### 1. Engine/core
+
+Owns Android lifecycle, surface lifecycle, frame timing, input routing, and high-level scene selection. It coordinates renderers but does not contain sea geometry or water-specific shader logic.
+
+The current `src/main.c` still owns much of this work. It is a known integration bottleneck; extraction should be incremental and must preserve the current Android startup and 2D behavior.
+
+### 2. Shared Vulkan backend
+
+Owns Vulkan objects whose lifetime is shared by renderers:
+
+- VkInstance, Android surface, physical/logical device, graphics queue.
+- Swapchain, swapchain images/views, frame synchronization, command pools/buffers.
+- Shared frame begin/submit/present coordination.
+- Common GPU allocation and resource-lifetime helpers.
+
+The backend owns frame submission. A renderer must not independently acquire/present the swapchain or submit a competing frame.
+
+### 3. 2D renderer
+
+Owns 2D-specific pipelines, vertex formats, textures, sprites, tilemaps, and draw ordering. It must not depend on 3D scene types or 3D camera state.
+
+The current 2D implementation is still substantially embedded in `src/main.c`; it is not yet a clean standalone module. Do not describe it as fully extracted.
+
+### 4. 3D renderer
+
+Owns 3D-specific camera state, mesh data, 3D pipelines, depth state, and 3D draw recording. Initial module candidates:
+
+- `src/camera3d.h/.c`: camera parameters and view/projection calculation, using `math3d`.
+- `src/mesh3d.h/.c`: implemented CPU-side position-only vertex/index descriptions, triangle and index validation, axis-aligned bounds, and a centered +Y-facing XZ plane writer. Arrays are borrowed.
+- `src/gpu_mesh_layout.h/.c`: implemented platform-independent combined vertex/index buffer layout calculation with overflow checks and host tests.
+- `src/gpu_mesh_vk.h/.c`: implemented opaque Vulkan GPU mesh allocation/upload/destruction. It owns the destination buffer and memory; staging resources, transient command pool, and upload fence are temporary. `TgSeaTestScene` invokes this module during Vulkan startup.
+- `src/renderer3d.h/.c`: proposed 3D renderer lifecycle and recording of 3D draw commands.
+- `src/sea_test_scene.h/.c`: implemented owner for the finite 20 x 20 test plane, borrowed CPU mesh arrays, and opaque uploaded GPU mesh. It creates/destroys the GPU resource at the device lifecycle boundary; it does not own Vulkan device/queue objects or issue frame draws. This is experiment content, not a general engine subsystem.
+
+The camera, CPU mesh, GPU layout, GPU upload, and sea test scene files listed above are implemented. `src/renderer3d.h/.c` remains a proposed module.
+
+## Frame composition contract
+
+The core coordinates one frame in this order:
+
+1. Begin frame and acquire one swapchain image through the shared backend.
+2. Begin the frame's render work.
+3. Record the 3D world pass (when enabled).
+4. Record the 2D world/UI pass with explicit overlay ordering.
+5. End rendering, submit once, and present once through the backend.
+
+The shared render pass has one color attachment and one depth attachment. `main.c` chooses the first supported format from D32, D32S8, D24S8, and D16. Its external dependency covers color output and early/late fragment tests. The current frame coordinator waits on one frame fence before the next frame, so the depth target is a single image shared across the swapchain framebuffers; this must be revisited before allowing multiple frames in flight. The 3D pipeline enables depth test/write. The existing 2D pipeline has depth testing disabled and draws after the sea pass as an overlay. Renderers do not own swapchain acquisition or presentation.
+
+## Initial sea scene contract — Stage 1
+
+- **Geometry:** one finite rectangle in the XZ plane, centered at the origin, with Y = 0.
+- **Initial dimensions:** 20 x 20 engine units; a test scale only, not a world-meter commitment.
+- **Topology:** four vertices and six indices (two triangles).
+- **Material:** one constant opaque blue color; no texture or lighting dependency.
+- **Camera convention:** right-handed, Y-up, looking along local -Z, consistent with `tg_mat4_look_at`.
+- **Initial camera:** position (0, 8, 12), target (0, 0, 0), up (0, 1, 0); adjust only if the plane is not framed correctly.
+- **Projection:** perspective using `tg_mat4_perspective_vk`; validate Vulkan clip-space Y orientation and viewport conventions during integration.
+- **No animation:** the plane is static in Stage 1.
+
+The dimensions and camera are deterministic starting values for the prototype and may be tuned after the first rendered result. They are not visual-quality claims.
+
+## GPU resource and lifecycle rules
+
+- Every Vulkan resource has one documented owner and a matching create/destroy path. The mesh-specific ownership and upload contract is defined in [`3D_GPU_RESOURCE_DESIGN.md`](3D_GPU_RESOURCE_DESIGN.md).
+- Resource creation and destruction occur only while the Vulkan device is valid; teardown waits for relevant GPU work before releasing resources.
+- Handle partial initialization failures and clean up resources already created.
+- Recreate swapchain-dependent resources after surface/swapchain changes.
+- Avoid per-frame allocation of static mesh buffers.
+- Do not expose raw Vulkan ownership to the sea scene or gameplay layer.
+- Keep CPU-side geometry testable without an Android device.
+
+## Implementation sequence
+
+1. **Architecture and baseline review:** completed as documentation; module boundaries, frame contract, and the smallest sea-scene contract are recorded. No 2D behavior changes were made.
+2. **Camera and mesh foundations:** implemented and covered by passing strict-warning CI tests. `TgMesh3D` validates finite positions, indices, triangles, and AABB bounds, and writes the four-vertex/six-index XZ plane.
+3. **GPU mesh upload and scene ownership:** implemented. The checked buffer-layout module and opaque Vulkan upload resource are integrated with `TgSeaTestScene`; `main.c` invokes upload after device/queue initialization and releases the mesh before device destruction. Passing CI confirms compilation and portable tests, not successful execution on a physical GPU.
+4. **Minimal 3D pass:** implemented in `main.c`; the BUILDING test screen draws the flat plane with the depth-enabled sea pipeline, then draws existing 2D labels over it. Android APK compilation and packaging pass in CI.
+5. **Device visual validation:** pending; install/run this updated APK, verify the depth/pipeline logs and visible sea, and record any validation-layer issues. The user's prior no-crash report applies to the preceding upload-only build, not yet to this new 3D draw build.
+6. **Regression and composition validation:** verify the main menu and 2D world at runtime, then confirm the BUILDING screen's 2D text overlays remain visible over the 3D plane.
+7. **Progressive quality stages:** add waves, lighting, and higher detail separately, preserving a benchmark baseline at each step.
+
+## Acceptance criteria for Stage 1
+
+- The Android build succeeds for the project's target ABI.
+- A finite blue plane is visible from the defined camera.
+- Projection, winding/culling, viewport orientation, and depth behavior are correct.
+- No crash or validation-layer error attributable to the new 3D path is observed (when validation layers are available).
+- Existing 2D path remains unchanged and continues to build; runtime regression testing is recorded separately.
+- Device, Android version, GPU/driver, resolution, build configuration, FPS/frame time, and memory observations are recorded.
+- No pass is declared without actual device/build evidence.
+
+## Current limitations to resolve before implementation
+
+- Vulkan setup, swapchain, render pass, pipeline, command recording, and presentation are currently concentrated in `src/main.c`.
+- The render pass now has a depth attachment and one shared depth image; per-swapchain/per-frame depth resources will be needed if the frame loop later supports multiple frames in flight.
+- The existing 2D vertex/pipeline setup remains tailored to 2D and is kept separate from the new position-only sea pipeline.
+- The minimum 3D draw path is still integrated in `main.c`; extracting it into a reusable `renderer3d` module remains future work.
+- The build script compiles `src/*.c`; shader compilation is explicit and now compiles both 2D and sea shader pairs.
+
+## Change control
+
+All work stays on `feature/3d-renderer-foundation`. Keep changes scoped, run relevant host tests and Android build checks, review the diff, and do not merge into another branch until the user explicitly approves.
