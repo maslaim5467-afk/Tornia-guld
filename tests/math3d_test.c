@@ -39,7 +39,7 @@ int main(void) {
 
     assert(tg_mat4_perspective_vk(1.04719755f, 16.0f / 9.0f,
                                   0.1f, 100.0f, &projection) == 0);
-    assert(projection.m[0] > 0.0f && projection.m[5] > 0.0f);
+    assert(projection.m[0] > 0.0f && projection.m[5] < 0.0f);
     assert(close_to(projection.m[11], -1.0f));
     assert(tg_mat4_perspective_vk(1.0f, 0.0f, 0.1f, 100.0f,
                                   &projection) != 0);
